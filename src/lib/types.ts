@@ -42,4 +42,12 @@ export type CalendarEvent = {
   start: string | null;
   end: string | null;
   isAllDay: boolean;
+  source: "google" | "ics";
+  sourceName: string | null;
+};
+
+export type CalendarFeed = {
+  id: string;
+  name: string | null;
+  url: string;
 };

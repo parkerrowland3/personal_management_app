@@ -31,6 +31,16 @@ create table if not exists public.google_calendar_connections (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.calendar_feeds (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text,
+  url text not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  unique (user_id, url)
+);
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -53,8 +63,15 @@ before update on public.google_calendar_connections
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists calendar_feeds_set_updated_at on public.calendar_feeds;
+create trigger calendar_feeds_set_updated_at
+before update on public.calendar_feeds
+for each row
+execute function public.set_updated_at();
+
 alter table public.tasks enable row level security;
 alter table public.google_calendar_connections enable row level security;
+alter table public.calendar_feeds enable row level security;
 
 drop policy if exists "Users can read their own tasks" on public.tasks;
 create policy "Users can read their own tasks"
@@ -106,7 +123,33 @@ on public.google_calendar_connections
 for delete
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can read their own calendar feeds" on public.calendar_feeds;
+create policy "Users can read their own calendar feeds"
+on public.calendar_feeds
+for select
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own calendar feeds" on public.calendar_feeds;
+create policy "Users can insert their own calendar feeds"
+on public.calendar_feeds
+for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own calendar feeds" on public.calendar_feeds;
+create policy "Users can update their own calendar feeds"
+on public.calendar_feeds
+for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own calendar feeds" on public.calendar_feeds;
+create policy "Users can delete their own calendar feeds"
+on public.calendar_feeds
+for delete
+using (auth.uid() = user_id);
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists tasks_status_idx on public.tasks (status);
 create index if not exists tasks_domain_idx on public.tasks (domain);
 create index if not exists tasks_due_date_idx on public.tasks (due_date);
+create index if not exists calendar_feeds_user_id_idx on public.calendar_feeds (user_id);

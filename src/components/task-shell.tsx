@@ -17,6 +17,7 @@ import {
   PRIORITY_OPTIONS,
   STATUS_OPTIONS,
   type CalendarEvent,
+  type CalendarFeed,
   type Domain,
   type GoogleCalendarStatus,
   type Task,
@@ -89,9 +90,12 @@ export function TaskShell() {
   const [email, setEmail] = useState("");
   const [search, setSearch] = useState("");
   const [activeDomain, setActiveDomain] = useState<Domain | "all">("all");
+  const [feedName, setFeedName] = useState("");
+  const [feedUrl, setFeedUrl] = useState("");
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
+  const [isFeedBusy, setIsFeedBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<GoogleCalendarStatus>({
     configured: false,
     connected: false,
@@ -99,6 +103,7 @@ export function TaskShell() {
     calendarId: null
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
   const [notice, setNotice] = useState<string | null>(
     isSupabaseConfigured()
       ? null
@@ -162,17 +167,37 @@ export function TaskShell() {
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-
-      if (response.status !== 400) {
-        setNotice(payload?.error ?? "Unable to load Google Calendar events.");
-      }
-
+      setNotice(payload?.error ?? "Unable to load calendar events.");
       setCalendarEvents([]);
       return;
     }
 
     const payload = (await response.json()) as { events: CalendarEvent[] };
     setCalendarEvents(payload.events);
+  }, [getAccessToken]);
+
+  const loadCalendarFeeds = useCallback(async () => {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setCalendarFeeds([]);
+      return;
+    }
+
+    const response = await fetch("/api/calendar-feeds", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setNotice(payload?.error ?? "Unable to load calendar feeds.");
+      return;
+    }
+
+    const payload = (await response.json()) as { feeds: CalendarFeed[] };
+    setCalendarFeeds(payload.feeds);
   }, [getAccessToken]);
 
   const loadTasks = useCallback(
@@ -299,6 +324,12 @@ export function TaskShell() {
         setSelectedTaskId(null);
       }
 
+      if (sessionData.session?.user.id) {
+        void loadCalendarStatus();
+        void loadCalendarEvents();
+        void loadCalendarFeeds();
+      }
+
       setIsLoading(false);
     }
 
@@ -313,6 +344,7 @@ export function TaskShell() {
         void loadTasks(nextSession.user.id);
         void loadCalendarStatus();
         void loadCalendarEvents();
+        void loadCalendarFeeds();
       } else {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
@@ -324,6 +356,7 @@ export function TaskShell() {
           calendarId: null
         });
         setCalendarEvents([]);
+        setCalendarFeeds([]);
         setNotice("Signed out. Demo mode data is shown until you sign in again.");
       }
     });
@@ -332,7 +365,7 @@ export function TaskShell() {
       isMounted = false;
       authSubscription.data.subscription.unsubscribe();
     };
-  }, [loadCalendarEvents, loadCalendarStatus, loadTasks, supabase]);
+  }, [loadCalendarEvents, loadCalendarFeeds, loadCalendarStatus, loadTasks, supabase]);
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -366,6 +399,46 @@ export function TaskShell() {
       count: tasks.filter((task) => task.domain === domain).length
     }));
   }, [tasks]);
+
+  const todayEvents = useMemo(
+    () => calendarEvents.filter((event) => isSameDay(event.start, new Date())),
+    [calendarEvents]
+  );
+
+  const nextFiveDayBuckets = useMemo(() => {
+    const buckets = Array.from({ length: 5 }, (_, index) => {
+      const date = addDays(startOfDay(new Date()), index + 1);
+
+      return {
+        date,
+        events: calendarEvents.filter((event) => isSameDay(event.start, date))
+      };
+    });
+
+    return buckets;
+  }, [calendarEvents]);
+
+  const todayAllDayEvents = useMemo(
+    () => todayEvents.filter((event) => event.isAllDay),
+    [todayEvents]
+  );
+
+  const todayTimedEvents = useMemo(
+    () => todayEvents.filter((event) => !event.isAllDay && event.start),
+    [todayEvents]
+  );
+
+  const timelineHours = useMemo(() => {
+    if (!todayTimedEvents.length) {
+      return Array.from({ length: 14 }, (_, index) => index + 7);
+    }
+
+    const hours = todayTimedEvents.map((event) => new Date(event.start!).getHours());
+    const first = Math.max(0, Math.min(...hours, 7));
+    const last = Math.min(23, Math.max(...hours, 20));
+
+    return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+  }, [todayTimedEvents]);
 
   async function sendMagicLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -582,7 +655,7 @@ export function TaskShell() {
       googleEmail: null,
       calendarId: null
     });
-    setCalendarEvents([]);
+    void loadCalendarEvents();
     setNotice("Google Calendar disconnected.");
     setIsCalendarBusy(false);
   }
@@ -640,11 +713,86 @@ export function TaskShell() {
     setIsCalendarBusy(false);
   }
 
+  async function addCalendarFeed(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before adding a calendar feed.");
+      return;
+    }
+
+    setIsFeedBusy(true);
+
+    const response = await fetch("/api/calendar-feeds", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: feedName,
+        url: feedUrl
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; feed?: CalendarFeed }
+      | null;
+
+    if (!response.ok || !payload?.feed) {
+      setNotice(payload?.error ?? "Unable to add the calendar feed.");
+      setIsFeedBusy(false);
+      return;
+    }
+
+    setCalendarFeeds((current) => [...current, payload.feed!]);
+    setFeedName("");
+    setFeedUrl("");
+    await loadCalendarEvents();
+    setNotice("Calendar feed added.");
+    setIsFeedBusy(false);
+  }
+
+  async function removeCalendarFeed(feedId: string) {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before removing a calendar feed.");
+      return;
+    }
+
+    setIsFeedBusy(true);
+
+    const response = await fetch(`/api/calendar-feeds/${feedId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setNotice(payload?.error ?? "Unable to remove the calendar feed.");
+      setIsFeedBusy(false);
+      return;
+    }
+
+    setCalendarFeeds((current) => current.filter((feed) => feed.id !== feedId));
+    await loadCalendarEvents();
+    setNotice("Calendar feed removed.");
+    setIsFeedBusy(false);
+  }
+
   const canSyncSelectedTask =
     Boolean(session?.user.id) &&
     calendarStatus.connected &&
     Boolean(selectedTask?.due_date) &&
     !selectedTask?.id.startsWith("sample-");
+
+  const hasCalendarSources = calendarStatus.connected || calendarFeeds.length > 0;
 
   return (
     <main className="shell">
@@ -653,7 +801,8 @@ export function TaskShell() {
           <p className="eyebrow">Personal OS</p>
           <h1>Focus Desk</h1>
           <p className="sidebar__copy">
-            A personal dashboard for personal life, work, and school.
+            A calm workspace for personal life, work, and school. Structured like a lightweight
+            Notion dashboard.
           </p>
         </div>
 
@@ -743,7 +892,7 @@ export function TaskShell() {
             </div>
           ) : (
             <div className="stack-actions">
-              <p className="muted">Authorize Google Calendar to push due-dated tasks as events.</p>
+              <p className="muted">Authorize Google Calendar to sync due-dated tasks.</p>
               <button
                 className="secondary-button"
                 disabled={isCalendarBusy}
@@ -913,46 +1062,181 @@ export function TaskShell() {
           ))}
         </section>
 
-        <section className="panel">
+        <section className="panel calendar-panel">
           <div className="panel__header">
-            <h2>Upcoming calendar events</h2>
+            <h2>Calendar</h2>
             <span className="count-pill">{calendarEvents.length}</span>
           </div>
-          {!session ? (
-            <div className="empty-state">
-              <p>Sign in to load your calendar.</p>
-            </div>
-          ) : !calendarStatus.connected ? (
-            <div className="empty-state">
-              <p>Connect Google Calendar to see upcoming events here.</p>
-            </div>
-          ) : calendarEvents.length ? (
-            <div className="calendar-events">
-              {calendarEvents.map((event) => (
-                <article className="calendar-event-card" key={event.id}>
-                  <div className="calendar-event-card__header">
-                    <h3>{event.summary}</h3>
-                    <span>{formatCalendarEventTime(event)}</span>
-                  </div>
-                  {event.description ? <p>{event.description}</p> : null}
-                  {event.htmlLink ? (
-                    <a
-                      className="text-link"
-                      href={event.htmlLink}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open in Google Calendar
-                    </a>
+
+          <div className="calendar-grid">
+            <section className="calendar-card">
+              <div className="calendar-card__header">
+                <div>
+                  <p className="eyebrow">Today</p>
+                  <h3>{formatDayHeading(new Date())}</h3>
+                </div>
+              </div>
+
+              {!session ? (
+                <div className="empty-state">
+                  <p>Sign in to load your calendar.</p>
+                </div>
+              ) : !hasCalendarSources ? (
+                <div className="empty-state">
+                  <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+                </div>
+              ) : (
+                <div className="today-view">
+                  {todayAllDayEvents.length ? (
+                    <div className="all-day-strip">
+                      <span className="all-day-strip__label">All day</span>
+                      <div className="all-day-strip__items">
+                        {todayAllDayEvents.map((event) => (
+                          <article className="calendar-pill" key={event.id}>
+                            <span>{event.summary}</span>
+                            <small>{event.sourceName ?? event.source}</small>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
                   ) : null}
-                </article>
-              ))}
+
+                  <div className="timeline">
+                    {timelineHours.map((hour) => {
+                      const eventsForHour = todayTimedEvents.filter(
+                        (event) => new Date(event.start!).getHours() === hour
+                      );
+
+                      return (
+                        <div className="timeline-row" key={hour}>
+                          <div className="timeline-row__hour">{formatHour(hour)}</div>
+                          <div className="timeline-row__events">
+                            {eventsForHour.length ? (
+                              eventsForHour.map((event) => (
+                                <article className="timeline-event" key={event.id}>
+                                  <div className="timeline-event__header">
+                                    <h4>{event.summary}</h4>
+                                    <span>{formatEventTimeRange(event)}</span>
+                                  </div>
+                                  <p>{event.sourceName ?? event.source}</p>
+                                </article>
+                              ))
+                            ) : (
+                              <div className="timeline-row__empty" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="calendar-card">
+              <div className="calendar-card__header">
+                <div>
+                  <p className="eyebrow">Next 5 Days</p>
+                  <h3>Upcoming</h3>
+                </div>
+              </div>
+
+              {!session ? (
+                <div className="empty-state">
+                  <p>Sign in to load your calendar.</p>
+                </div>
+              ) : !hasCalendarSources ? (
+                <div className="empty-state">
+                  <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+                </div>
+              ) : (
+                <div className="future-days">
+                  {nextFiveDayBuckets.map((bucket) => (
+                    <section className="future-day" key={bucket.date.toISOString()}>
+                      <div className="future-day__header">
+                        <h4>{formatDayHeading(bucket.date)}</h4>
+                      </div>
+                      {bucket.events.length ? (
+                        <div className="future-day__events">
+                          {bucket.events.map((event) => (
+                            <article className="future-event" key={event.id}>
+                              <div>
+                                <strong>{event.summary}</strong>
+                                <p>{formatEventTimeRange(event)}</p>
+                              </div>
+                              <small>{event.sourceName ?? event.source}</small>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="muted">No events scheduled.</p>
+                      )}
+                    </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+
+          <section className="feed-manager">
+            <div className="feed-manager__header">
+              <div>
+                <p className="eyebrow">ICS feeds</p>
+                <h3>External calendars</h3>
+              </div>
             </div>
-          ) : (
-            <div className="empty-state">
-              <p>No upcoming events found on your primary calendar.</p>
-            </div>
-          )}
+
+            {!session ? (
+              <p className="muted">Sign in to manage calendar feeds.</p>
+            ) : (
+              <>
+                <form className="feed-form" onSubmit={addCalendarFeed}>
+                  <label>
+                    Feed name
+                    <input
+                      onChange={(event) => setFeedName(event.target.value)}
+                      placeholder="School schedule"
+                      value={feedName}
+                    />
+                  </label>
+                  <label>
+                    ICS URL
+                    <input
+                      onChange={(event) => setFeedUrl(event.target.value)}
+                      placeholder="https://example.com/calendar.ics"
+                      type="url"
+                      value={feedUrl}
+                    />
+                  </label>
+                  <button className="secondary-button" disabled={isFeedBusy || !feedUrl} type="submit">
+                    {isFeedBusy ? "Saving..." : "Add feed"}
+                  </button>
+                </form>
+
+                <div className="feed-list">
+                  {calendarFeeds.map((feed) => (
+                    <article className="feed-item" key={feed.id}>
+                      <div>
+                        <strong>{feed.name || "Untitled feed"}</strong>
+                        <p>{feed.url}</p>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        disabled={isFeedBusy}
+                        onClick={() => void removeCalendarFeed(feed.id)}
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    </article>
+                  ))}
+                  {!calendarFeeds.length ? (
+                    <p className="muted">No ICS feeds connected yet.</p>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </section>
         </section>
       </section>
 
@@ -1093,6 +1377,32 @@ export function TaskShell() {
   );
 }
 
+function startOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isSameDay(value: string | null, date: Date) {
+  if (!value) {
+    return false;
+  }
+
+  const eventDate = new Date(value);
+
+  return (
+    eventDate.getFullYear() === date.getFullYear() &&
+    eventDate.getMonth() === date.getMonth() &&
+    eventDate.getDate() === date.getDate()
+  );
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -1100,22 +1410,45 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function formatCalendarEventTime(event: CalendarEvent) {
-  if (!event.start) {
-    return "No start time";
-  }
-
-  if (event.isAllDay) {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric"
-    }).format(new Date(`${event.start}T00:00:00`));
-  }
-
+function formatDayHeading(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
     month: "short",
-    day: "numeric",
+    day: "numeric"
+  }).format(date);
+}
+
+function formatHour(hour: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric"
+  }).format(new Date(2026, 0, 1, hour));
+}
+
+function formatEventTimeRange(event: CalendarEvent) {
+  if (event.isAllDay) {
+    return "All day";
+  }
+
+  if (!event.start) {
+    return "No time";
+  }
+
+  const start = new Date(event.start);
+
+  if (!event.end) {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(start);
+  }
+
+  const end = new Date(event.end);
+
+  return `${new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit"
-  }).format(new Date(event.start));
+  }).format(start)} - ${new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(end)}`;
 }
