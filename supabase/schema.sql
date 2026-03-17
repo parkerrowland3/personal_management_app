@@ -24,12 +24,17 @@ create table if not exists public.google_calendar_connections (
   user_id uuid primary key references auth.users(id) on delete cascade,
   google_email text,
   calendar_id text not null default 'primary',
+  default_domain text not null default 'personal' check (default_domain in ('personal', 'work', 'school')),
   access_token text not null,
   refresh_token text,
   expires_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.google_calendar_connections add column if not exists default_domain text;
+update public.google_calendar_connections set default_domain = 'personal' where default_domain is null;
+alter table public.google_calendar_connections alter column default_domain set default 'personal';
 
 create table if not exists public.calendar_feeds (
   id uuid primary key default gen_random_uuid(),

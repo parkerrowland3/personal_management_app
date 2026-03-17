@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     const supabase = getSupabaseAdminClient();
     const { data: existingConnection } = await supabase
       .from("google_calendar_connections")
-      .select("refresh_token")
+      .select("refresh_token, default_domain")
       .eq("user_id", payload.userId)
       .maybeSingle();
 
@@ -47,6 +47,7 @@ export async function GET(request: Request) {
       user_id: payload.userId,
       google_email: googleEmail,
       calendar_id: "primary",
+      default_domain: existingConnection?.default_domain ?? "personal",
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token ?? existingConnection?.refresh_token ?? null,
       expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString()
@@ -61,4 +62,3 @@ export async function GET(request: Request) {
     return NextResponse.redirect(redirectUrl);
   }
 }
-

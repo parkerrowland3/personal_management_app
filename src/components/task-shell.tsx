@@ -120,7 +120,8 @@ export function TaskShell() {
     configured: false,
     connected: false,
     googleEmail: null,
-    calendarId: null
+    calendarId: null,
+    defaultDomain: null
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
@@ -154,7 +155,8 @@ export function TaskShell() {
         configured: false,
         connected: false,
         googleEmail: null,
-        calendarId: null
+        calendarId: null,
+        defaultDomain: null
       });
       return;
     }
@@ -392,7 +394,8 @@ export function TaskShell() {
           configured: false,
           connected: false,
           googleEmail: null,
-          calendarId: null
+          calendarId: null,
+          defaultDomain: null
         });
         setCalendarEvents([]);
         setCalendarFeeds([]);
@@ -696,7 +699,8 @@ export function TaskShell() {
       configured: true,
       connected: false,
       googleEmail: null,
-      calendarId: null
+      calendarId: null,
+      defaultDomain: null
     });
     await loadCalendarEvents();
     setNotice("Google Calendar disconnected.");
@@ -753,6 +757,47 @@ export function TaskShell() {
     setSelectedTaskId(payload.task.id);
     await loadCalendarEvents();
     setNotice("Task synced to Google Calendar.");
+    setIsCalendarBusy(false);
+  }
+
+  async function updateGoogleDefaultDomain(domain: Domain) {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before updating the Google Calendar default space.");
+      return;
+    }
+
+    setIsCalendarBusy(true);
+
+    const response = await fetch("/api/google-calendar/status", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        defaultDomain: domain
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | GoogleCalendarStatus
+      | null;
+
+    if (!response.ok || !payload) {
+      setNotice(
+        (payload as { error?: string } | null)?.error ??
+          "Unable to update the Google Calendar default space."
+      );
+      setIsCalendarBusy(false);
+      return;
+    }
+
+    setCalendarStatus(payload as GoogleCalendarStatus);
+    await loadCalendarEvents();
+    setNotice("Google Calendar default space updated.");
     setIsCalendarBusy(false);
   }
 
@@ -1022,6 +1067,22 @@ export function TaskShell() {
               <p className="muted">
                 Connected to {calendarStatus.googleEmail ?? "your Google account"}.
               </p>
+              <label>
+                Default space
+                <select
+                  disabled={isCalendarBusy}
+                  onChange={(event) =>
+                    void updateGoogleDefaultDomain(event.target.value as Domain)
+                  }
+                  value={calendarStatus.defaultDomain ?? "personal"}
+                >
+                  {DOMAIN_OPTIONS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domainLabels[domain]}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 className="secondary-button"
                 disabled={isCalendarBusy}

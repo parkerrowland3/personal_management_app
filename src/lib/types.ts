@@ -32,6 +32,7 @@ export type GoogleCalendarStatus = {
   connected: boolean;
   googleEmail: string | null;
   calendarId: string | null;
+  defaultDomain: Domain | null;
 };
 
 export type CalendarEvent = {
