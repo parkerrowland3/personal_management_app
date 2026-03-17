@@ -95,9 +95,11 @@ export function TaskShell() {
   const [session, setSession] = useState<Session | null>(null);
   const [tasks, setTasks] = useState<Task[]>(sampleTasks);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(sampleTasks[0]?.id ?? null);
+  const [selectedFeed, setSelectedFeed] = useState<CalendarFeed | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
   const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
+  const [isFeedDetailOverlayOpen, setIsFeedDetailOverlayOpen] = useState(false);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_TASK);
   const [eventDraft, setEventDraft] = useState(EMPTY_EVENT_DRAFT);
   const [email, setEmail] = useState("");
@@ -105,6 +107,8 @@ export function TaskShell() {
   const [activeDomain, setActiveDomain] = useState<Domain | "all">("all");
   const [feedName, setFeedName] = useState("");
   const [feedUrl, setFeedUrl] = useState("");
+  const [feedEditName, setFeedEditName] = useState("");
+  const [feedEditUrl, setFeedEditUrl] = useState("");
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
@@ -126,7 +130,8 @@ export function TaskShell() {
   const deferredSearch = useDeferredValue(search);
   const supabase = getSupabaseBrowserClient();
 
-  const anyOverlayOpen = isDetailOpen || isEventOverlayOpen || isFeedOverlayOpen;
+  const anyOverlayOpen =
+    isDetailOpen || isEventOverlayOpen || isFeedOverlayOpen || isFeedDetailOverlayOpen;
 
   const getAccessToken = useCallback(async () => {
     if (!supabase) {
@@ -280,6 +285,7 @@ export function TaskShell() {
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
         setIsFeedOverlayOpen(false);
+        setIsFeedDetailOverlayOpen(false);
       }
     }
 
@@ -365,9 +371,11 @@ export function TaskShell() {
       } else {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
+        setSelectedFeed(null);
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
         setIsFeedOverlayOpen(false);
+        setIsFeedDetailOverlayOpen(false);
         setCalendarStatus({
           configured: false,
           connected: false,
@@ -672,7 +680,7 @@ export function TaskShell() {
       googleEmail: null,
       calendarId: null
     });
-    void loadCalendarEvents();
+    await loadCalendarEvents();
     setNotice("Google Calendar disconnected.");
     setIsCalendarBusy(false);
   }
@@ -725,7 +733,7 @@ export function TaskShell() {
       sortTasks(current.map((task) => (task.id === payload.task!.id ? payload.task! : task)))
     );
     setSelectedTaskId(payload.task.id);
-    void loadCalendarEvents();
+    await loadCalendarEvents();
     setNotice("Task synced to Google Calendar.");
     setIsCalendarBusy(false);
   }
@@ -748,7 +756,10 @@ export function TaskShell() {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(eventDraft)
+      body: JSON.stringify({
+        ...eventDraft,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      })
     });
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -808,6 +819,53 @@ export function TaskShell() {
     setIsFeedBusy(false);
   }
 
+  async function updateSelectedFeed(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedFeed) {
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before updating a calendar feed.");
+      return;
+    }
+
+    setIsFeedBusy(true);
+
+    const response = await fetch(`/api/calendar-feeds/${selectedFeed.id}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: feedEditName,
+        url: feedEditUrl
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; feed?: CalendarFeed }
+      | null;
+
+    if (!response.ok || !payload?.feed) {
+      setNotice(payload?.error ?? "Unable to update the calendar feed.");
+      setIsFeedBusy(false);
+      return;
+    }
+
+    setCalendarFeeds((current) =>
+      current.map((feed) => (feed.id === payload.feed!.id ? payload.feed! : feed))
+    );
+    setSelectedFeed(payload.feed);
+    await loadCalendarEvents();
+    setNotice("Calendar feed updated.");
+    setIsFeedBusy(false);
+  }
+
   async function removeCalendarFeed(feedId: string) {
     const accessToken = await getAccessToken();
 
@@ -834,9 +892,18 @@ export function TaskShell() {
     }
 
     setCalendarFeeds((current) => current.filter((feed) => feed.id !== feedId));
+    setSelectedFeed(null);
+    setIsFeedDetailOverlayOpen(false);
     await loadCalendarEvents();
     setNotice("Calendar feed removed.");
     setIsFeedBusy(false);
+  }
+
+  function openFeedDetail(feed: CalendarFeed) {
+    setSelectedFeed(feed);
+    setFeedEditName(feed.name ?? "");
+    setFeedEditUrl(feed.url);
+    setIsFeedDetailOverlayOpen(true);
   }
 
   const canSyncSelectedTask =
@@ -966,11 +1033,7 @@ export function TaskShell() {
           <p className="muted">
             Bring in school, work, or household calendars from public `.ics` feeds.
           </p>
-          <button
-            className="secondary-button"
-            onClick={() => setIsFeedOverlayOpen(true)}
-            type="button"
-          >
+          <button className="secondary-button" onClick={() => setIsFeedOverlayOpen(true)} type="button">
             Manage feeds
           </button>
         </section>
@@ -984,14 +1047,6 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
-            <button
-              className="secondary-button"
-              disabled={!calendarStatus.connected}
-              onClick={() => setIsEventOverlayOpen(true)}
-              type="button"
-            >
-              New calendar event
-            </button>
             <input
               className="search-input"
               onChange={(event) => setSearch(event.target.value)}
@@ -1144,6 +1199,17 @@ export function TaskShell() {
           <div className="panel__header">
             <h2>Calendar</h2>
             <span className="count-pill">{calendarEvents.length}</span>
+          </div>
+
+          <div className="calendar-panel__actions">
+            <button
+              className="secondary-button"
+              disabled={!calendarStatus.connected}
+              onClick={() => setIsEventOverlayOpen(true)}
+              type="button"
+            >
+              New calendar event
+            </button>
           </div>
 
           <div className="calendar-grid">
@@ -1480,23 +1546,59 @@ export function TaskShell() {
 
               <div className="overlay-feed-list">
                 {calendarFeeds.map((feed) => (
-                  <article className="feed-item" key={feed.id}>
+                  <button
+                    className="feed-item feed-item--button"
+                    key={feed.id}
+                    onClick={() => openFeedDetail(feed)}
+                    type="button"
+                  >
                     <div>
                       <strong>{feed.name || "Untitled feed"}</strong>
-                      <p>{feed.url}</p>
+                      <p>Click to view or edit this feed.</p>
                     </div>
-                    <button
-                      className="secondary-button"
-                      disabled={isFeedBusy}
-                      onClick={() => void removeCalendarFeed(feed.id)}
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  </article>
+                  </button>
                 ))}
                 {!calendarFeeds.length ? <p className="muted">No ICS feeds connected yet.</p> : null}
               </div>
+            </div>
+          )}
+        </Overlay>
+      ) : null}
+
+      {isFeedDetailOverlayOpen ? (
+        <Overlay onClose={() => setIsFeedDetailOverlayOpen(false)} title="Feed details">
+          {selectedFeed ? (
+            <form className="detail__content" onSubmit={updateSelectedFeed}>
+              <label>
+                Feed name
+                <input
+                  onChange={(event) => setFeedEditName(event.target.value)}
+                  value={feedEditName}
+                />
+              </label>
+              <label>
+                ICS URL
+                <input
+                  onChange={(event) => setFeedEditUrl(event.target.value)}
+                  type="url"
+                  value={feedEditUrl}
+                />
+              </label>
+              <button className="primary-button" disabled={isFeedBusy || !feedEditUrl} type="submit">
+                {isFeedBusy ? "Saving..." : "Save changes"}
+              </button>
+              <button
+                className="danger-button"
+                disabled={isFeedBusy}
+                onClick={() => void removeCalendarFeed(selectedFeed.id)}
+                type="button"
+              >
+                Remove feed
+              </button>
+            </form>
+          ) : (
+            <div className="empty-state empty-state--detail">
+              <p>Select a feed to edit it.</p>
             </div>
           )}
         </Overlay>

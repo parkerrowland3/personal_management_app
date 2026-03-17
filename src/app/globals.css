@@ -470,6 +470,11 @@ label {
   gap: 1rem;
 }
 
+.calendar-panel__actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .calendar-grid {
   display: grid;
   grid-template-columns: 1.15fr 0.95fr;
@@ -581,6 +586,11 @@ label {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.feed-item--button {
+  width: 100%;
+  text-align: left;
 }
 
 .timeline-event__header {
