@@ -653,8 +653,7 @@ export function TaskShell() {
           <p className="eyebrow">Personal OS</p>
           <h1>Focus Desk</h1>
           <p className="sidebar__copy">
-            A calm workspace for personal life, work, and school. Structured like a lightweight
-            Notion dashboard.
+            A personal dashboard for personal life, work, and school.
           </p>
         </div>
 
