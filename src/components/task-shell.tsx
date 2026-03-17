@@ -7,7 +7,8 @@ import {
   useEffect,
   useMemo,
   useState,
-  type FormEvent
+  type FormEvent,
+  type ReactNode
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -34,6 +35,15 @@ const EMPTY_TASK: TaskDraft = {
   status: "today",
   priority: "medium",
   due_date: null
+};
+
+const EMPTY_EVENT_DRAFT = {
+  title: "",
+  description: "",
+  date: new Date().toISOString().slice(0, 10),
+  allDay: false,
+  startTime: "09:00",
+  endTime: "10:00"
 };
 
 const statusLabels: Record<TaskStatus, string> = {
@@ -86,7 +96,10 @@ export function TaskShell() {
   const [tasks, setTasks] = useState<Task[]>(sampleTasks);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(sampleTasks[0]?.id ?? null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
+  const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_TASK);
+  const [eventDraft, setEventDraft] = useState(EMPTY_EVENT_DRAFT);
   const [email, setEmail] = useState("");
   const [search, setSearch] = useState("");
   const [activeDomain, setActiveDomain] = useState<Domain | "all">("all");
@@ -112,6 +125,8 @@ export function TaskShell() {
 
   const deferredSearch = useDeferredValue(search);
   const supabase = getSupabaseBrowserClient();
+
+  const anyOverlayOpen = isDetailOpen || isEventOverlayOpen || isFeedOverlayOpen;
 
   const getAccessToken = useCallback(async () => {
     if (!supabase) {
@@ -256,13 +271,15 @@ export function TaskShell() {
   }, [loadCalendarEvents, loadCalendarStatus]);
 
   useEffect(() => {
-    if (!isDetailOpen) {
+    if (!anyOverlayOpen) {
       return;
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setIsDetailOpen(false);
+        setIsEventOverlayOpen(false);
+        setIsFeedOverlayOpen(false);
       }
     }
 
@@ -273,7 +290,7 @@ export function TaskShell() {
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
     };
-  }, [isDetailOpen]);
+  }, [anyOverlayOpen]);
 
   useEffect(() => {
     if (!supabase) {
@@ -349,6 +366,8 @@ export function TaskShell() {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
         setIsDetailOpen(false);
+        setIsEventOverlayOpen(false);
+        setIsFeedOverlayOpen(false);
         setCalendarStatus({
           configured: false,
           connected: false,
@@ -406,7 +425,7 @@ export function TaskShell() {
   );
 
   const nextFiveDayBuckets = useMemo(() => {
-    const buckets = Array.from({ length: 5 }, (_, index) => {
+    return Array.from({ length: 5 }, (_, index) => {
       const date = addDays(startOfDay(new Date()), index + 1);
 
       return {
@@ -414,8 +433,6 @@ export function TaskShell() {
         events: calendarEvents.filter((event) => isSameDay(event.start, date))
       };
     });
-
-    return buckets;
   }, [calendarEvents]);
 
   const todayAllDayEvents = useMemo(
@@ -713,6 +730,42 @@ export function TaskShell() {
     setIsCalendarBusy(false);
   }
 
+  async function createCalendarEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before creating calendar events.");
+      return;
+    }
+
+    setIsCalendarBusy(true);
+
+    const response = await fetch("/api/google-calendar/create-event", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(eventDraft)
+    });
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setNotice(payload?.error ?? "Unable to create the Google Calendar event.");
+      setIsCalendarBusy(false);
+      return;
+    }
+
+    await loadCalendarEvents();
+    setEventDraft(EMPTY_EVENT_DRAFT);
+    setIsEventOverlayOpen(false);
+    setNotice("Google Calendar event created.");
+    setIsCalendarBusy(false);
+  }
+
   async function addCalendarFeed(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -801,7 +854,8 @@ export function TaskShell() {
           <p className="eyebrow">Personal OS</p>
           <h1>Focus Desk</h1>
           <p className="sidebar__copy">
-            A dashboard for personal life, work, and school. 
+            A calm workspace for personal life, work, and school. Structured like a lightweight
+            Notion dashboard.
           </p>
         </div>
 
@@ -903,6 +957,23 @@ export function TaskShell() {
             </div>
           )}
         </section>
+
+        <section className="panel">
+          <div className="panel__header">
+            <h2>ICS Feeds</h2>
+            <span className="count-pill">{calendarFeeds.length}</span>
+          </div>
+          <p className="muted">
+            Bring in school, work, or household calendars from public `.ics` feeds.
+          </p>
+          <button
+            className="secondary-button"
+            onClick={() => setIsFeedOverlayOpen(true)}
+            type="button"
+          >
+            Manage feeds
+          </button>
+        </section>
       </aside>
 
       <section className="workspace">
@@ -913,6 +984,14 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
+            <button
+              className="secondary-button"
+              disabled={!calendarStatus.connected}
+              onClick={() => setIsEventOverlayOpen(true)}
+              type="button"
+            >
+              New calendar event
+            </button>
             <input
               className="search-input"
               onChange={(event) => setSearch(event.target.value)}
@@ -1176,203 +1255,281 @@ export function TaskShell() {
               )}
             </section>
           </div>
-
-          <section className="feed-manager">
-            <div className="feed-manager__header">
-              <div>
-                <p className="eyebrow">ICS feeds</p>
-                <h3>External calendars</h3>
-              </div>
-            </div>
-
-            {!session ? (
-              <p className="muted">Sign in to manage calendar feeds.</p>
-            ) : (
-              <>
-                <form className="feed-form" onSubmit={addCalendarFeed}>
-                  <label>
-                    Feed name
-                    <input
-                      onChange={(event) => setFeedName(event.target.value)}
-                      placeholder="School schedule"
-                      value={feedName}
-                    />
-                  </label>
-                  <label>
-                    ICS URL
-                    <input
-                      onChange={(event) => setFeedUrl(event.target.value)}
-                      placeholder="https://example.com/calendar.ics"
-                      type="url"
-                      value={feedUrl}
-                    />
-                  </label>
-                  <button className="secondary-button" disabled={isFeedBusy || !feedUrl} type="submit">
-                    {isFeedBusy ? "Saving..." : "Add feed"}
-                  </button>
-                </form>
-
-                <div className="feed-list">
-                  {calendarFeeds.map((feed) => (
-                    <article className="feed-item" key={feed.id}>
-                      <div>
-                        <strong>{feed.name || "Untitled feed"}</strong>
-                        <p>{feed.url}</p>
-                      </div>
-                      <button
-                        className="secondary-button"
-                        disabled={isFeedBusy}
-                        onClick={() => void removeCalendarFeed(feed.id)}
-                        type="button"
-                      >
-                        Remove
-                      </button>
-                    </article>
-                  ))}
-                  {!calendarFeeds.length ? (
-                    <p className="muted">No ICS feeds connected yet.</p>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </section>
         </section>
       </section>
 
       {isDetailOpen ? (
-        <div className="detail-overlay" onClick={() => setIsDetailOpen(false)} role="presentation">
-          <aside
-            aria-label="Task detail"
-            className="detail-modal panel"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="panel__header">
-              <h2>Task detail</h2>
+        <Overlay onClose={() => setIsDetailOpen(false)} title="Task detail">
+          {selectedTask ? (
+            <div className="detail__content">
+              <label>
+                Title
+                <input
+                  onChange={(event) => void updateSelectedTask({ title: event.target.value })}
+                  value={selectedTask.title}
+                />
+              </label>
+              <label>
+                Notes
+                <textarea
+                  onChange={(event) => void updateSelectedTask({ description: event.target.value })}
+                  rows={8}
+                  value={selectedTask.description ?? ""}
+                />
+              </label>
+              <label>
+                Space
+                <select
+                  onChange={(event) => void updateSelectedTask({ domain: event.target.value as Domain })}
+                  value={selectedTask.domain}
+                >
+                  {DOMAIN_OPTIONS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domainLabels[domain]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Status
+                <select
+                  onChange={(event) =>
+                    void updateSelectedTask({ status: event.target.value as TaskStatus })
+                  }
+                  value={selectedTask.status}
+                >
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {statusLabels[status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Priority
+                <select
+                  onChange={(event) =>
+                    void updateSelectedTask({ priority: event.target.value as TaskPriority })
+                  }
+                  value={selectedTask.priority}
+                >
+                  {PRIORITY_OPTIONS.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priorityLabels[priority]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Due date
+                <input
+                  onChange={(event) =>
+                    void updateSelectedTask({ due_date: event.target.value || null })
+                  }
+                  type="date"
+                  value={selectedTask.due_date ?? ""}
+                />
+              </label>
               <button
-                aria-label="Close task detail"
-                className="icon-button"
-                onClick={() => setIsDetailOpen(false)}
+                className="secondary-button"
+                disabled={!canSyncSelectedTask || isCalendarBusy}
+                onClick={() => void syncSelectedTaskToCalendar()}
                 type="button"
               >
-                Close
+                {isCalendarBusy
+                  ? "Syncing..."
+                  : selectedTask.google_calendar_event_id
+                    ? "Update Google Calendar event"
+                    : "Sync to Google Calendar"}
+              </button>
+              {selectedTask.google_calendar_event_url ? (
+                <a
+                  className="text-link"
+                  href={selectedTask.google_calendar_event_url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open in Google Calendar
+                </a>
+              ) : null}
+              {!selectedTask.due_date ? (
+                <p className="muted">Add a due date to sync this task as an all-day event.</p>
+              ) : null}
+              <button className="danger-button" onClick={() => void deleteSelectedTask()} type="button">
+                Delete task
               </button>
             </div>
-            {selectedTask ? (
-              <div className="detail__content">
+          ) : (
+            <div className="empty-state empty-state--detail">
+              <p>Select a task to edit it.</p>
+            </div>
+          )}
+        </Overlay>
+      ) : null}
+
+      {isEventOverlayOpen ? (
+        <Overlay onClose={() => setIsEventOverlayOpen(false)} title="New calendar event">
+          {!calendarStatus.connected ? (
+            <div className="empty-state empty-state--detail">
+              <p>Connect Google Calendar before creating events.</p>
+            </div>
+          ) : (
+            <form className="detail__content" onSubmit={createCalendarEvent}>
+              <label>
+                Title
+                <input
+                  onChange={(event) =>
+                    setEventDraft((current) => ({ ...current, title: event.target.value }))
+                  }
+                  placeholder="Project review"
+                  value={eventDraft.title}
+                />
+              </label>
+              <label>
+                Description
+                <textarea
+                  onChange={(event) =>
+                    setEventDraft((current) => ({ ...current, description: event.target.value }))
+                  }
+                  rows={5}
+                  value={eventDraft.description}
+                />
+              </label>
+              <label>
+                Date
+                <input
+                  onChange={(event) =>
+                    setEventDraft((current) => ({ ...current, date: event.target.value }))
+                  }
+                  type="date"
+                  value={eventDraft.date}
+                />
+              </label>
+              <label className="checkbox-row">
+                <input
+                  checked={eventDraft.allDay}
+                  onChange={(event) =>
+                    setEventDraft((current) => ({ ...current, allDay: event.target.checked }))
+                  }
+                  type="checkbox"
+                />
+                <span>All day event</span>
+              </label>
+              {!eventDraft.allDay ? (
+                <div className="split-grid">
+                  <label>
+                    Start time
+                    <input
+                      onChange={(event) =>
+                        setEventDraft((current) => ({ ...current, startTime: event.target.value }))
+                      }
+                      type="time"
+                      value={eventDraft.startTime}
+                    />
+                  </label>
+                  <label>
+                    End time
+                    <input
+                      onChange={(event) =>
+                        setEventDraft((current) => ({ ...current, endTime: event.target.value }))
+                      }
+                      type="time"
+                      value={eventDraft.endTime}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              <button className="primary-button" disabled={isCalendarBusy || !eventDraft.title} type="submit">
+                {isCalendarBusy ? "Creating..." : "Create event"}
+              </button>
+            </form>
+          )}
+        </Overlay>
+      ) : null}
+
+      {isFeedOverlayOpen ? (
+        <Overlay onClose={() => setIsFeedOverlayOpen(false)} title="ICS feeds">
+          {!session ? (
+            <div className="empty-state empty-state--detail">
+              <p>Sign in to manage calendar feeds.</p>
+            </div>
+          ) : (
+            <div className="detail__content">
+              <form className="overlay-feed-form" onSubmit={addCalendarFeed}>
                 <label>
-                  Title
+                  Feed name
                   <input
-                    onChange={(event) => void updateSelectedTask({ title: event.target.value })}
-                    value={selectedTask.title}
+                    onChange={(event) => setFeedName(event.target.value)}
+                    placeholder="School schedule"
+                    value={feedName}
                   />
                 </label>
                 <label>
-                  Notes
-                  <textarea
-                    onChange={(event) =>
-                      void updateSelectedTask({ description: event.target.value })
-                    }
-                    rows={8}
-                    value={selectedTask.description ?? ""}
-                  />
-                </label>
-                <label>
-                  Space
-                  <select
-                    onChange={(event) =>
-                      void updateSelectedTask({ domain: event.target.value as Domain })
-                    }
-                    value={selectedTask.domain}
-                  >
-                    {DOMAIN_OPTIONS.map((domain) => (
-                      <option key={domain} value={domain}>
-                        {domainLabels[domain]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Status
-                  <select
-                    onChange={(event) =>
-                      void updateSelectedTask({ status: event.target.value as TaskStatus })
-                    }
-                    value={selectedTask.status}
-                  >
-                    {STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {statusLabels[status]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Priority
-                  <select
-                    onChange={(event) =>
-                      void updateSelectedTask({ priority: event.target.value as TaskPriority })
-                    }
-                    value={selectedTask.priority}
-                  >
-                    {PRIORITY_OPTIONS.map((priority) => (
-                      <option key={priority} value={priority}>
-                        {priorityLabels[priority]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Due date
+                  ICS URL
                   <input
-                    onChange={(event) =>
-                      void updateSelectedTask({ due_date: event.target.value || null })
-                    }
-                    type="date"
-                    value={selectedTask.due_date ?? ""}
+                    onChange={(event) => setFeedUrl(event.target.value)}
+                    placeholder="https://example.com/calendar.ics"
+                    type="url"
+                    value={feedUrl}
                   />
                 </label>
-                <button
-                  className="secondary-button"
-                  disabled={!canSyncSelectedTask || isCalendarBusy}
-                  onClick={() => void syncSelectedTaskToCalendar()}
-                  type="button"
-                >
-                  {isCalendarBusy
-                    ? "Syncing..."
-                    : selectedTask.google_calendar_event_id
-                      ? "Update Google Calendar event"
-                      : "Sync to Google Calendar"}
+                <button className="primary-button" disabled={isFeedBusy || !feedUrl} type="submit">
+                  {isFeedBusy ? "Saving..." : "Add feed"}
                 </button>
-                {selectedTask.google_calendar_event_url ? (
-                  <a
-                    className="text-link"
-                    href={selectedTask.google_calendar_event_url}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    Open in Google Calendar
-                  </a>
-                ) : null}
-                {!selectedTask.due_date ? (
-                  <p className="muted">Add a due date to sync this task as an all-day event.</p>
-                ) : null}
-                <button
-                  className="danger-button"
-                  onClick={() => void deleteSelectedTask()}
-                  type="button"
-                >
-                  Delete task
-                </button>
+              </form>
+
+              <div className="overlay-feed-list">
+                {calendarFeeds.map((feed) => (
+                  <article className="feed-item" key={feed.id}>
+                    <div>
+                      <strong>{feed.name || "Untitled feed"}</strong>
+                      <p>{feed.url}</p>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      disabled={isFeedBusy}
+                      onClick={() => void removeCalendarFeed(feed.id)}
+                      type="button"
+                    >
+                      Remove
+                    </button>
+                  </article>
+                ))}
+                {!calendarFeeds.length ? <p className="muted">No ICS feeds connected yet.</p> : null}
               </div>
-            ) : (
-              <div className="empty-state empty-state--detail">
-                <p>Select a task to edit it.</p>
-              </div>
-            )}
-          </aside>
-        </div>
+            </div>
+          )}
+        </Overlay>
       ) : null}
     </main>
+  );
+}
+
+function Overlay({
+  children,
+  onClose,
+  title
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  title: string;
+}) {
+  return (
+    <div className="detail-overlay" onClick={onClose} role="presentation">
+      <aside
+        aria-label={title}
+        className="detail-modal panel"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="panel__header">
+          <h2>{title}</h2>
+          <button aria-label={`Close ${title}`} className="icon-button" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+        {children}
+      </aside>
+    </div>
   );
 }
 
