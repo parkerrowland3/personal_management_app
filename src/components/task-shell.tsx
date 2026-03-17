@@ -1228,7 +1228,6 @@ export function TaskShell() {
                   <p className="eyebrow">Today</p>
                   <h3>{formatDayHeading(new Date())}</h3>
                 </div>
-                <span className="now-pill">Now {formatNow(now)}</span>
               </div>
 
               {!session ? (
@@ -1263,26 +1262,31 @@ export function TaskShell() {
 
                       return (
                         <div className="timeline-row" key={hour}>
+                          {isCurrentHour(hour, now) ? (
+                            <div
+                              className="timeline-now-line"
+                              style={{
+                                top: `${(now.getMinutes() / 60) * 100}%`
+                              }}
+                            >
+                              <span className="timeline-now-line__label">{formatNow(now)}</span>
+                              <span className="timeline-now-line__rule" />
+                            </div>
+                          ) : null}
                           <div className="timeline-row__hour">{formatHour(hour)}</div>
                           <div className="timeline-row__events">
                             {eventsForHour.length ? (
-                              <>
-                                {isCurrentHour(hour, now) ? <div className="timeline-now">Now</div> : null}
-                                {eventsForHour.map((event) => (
-                                  <article className="timeline-event" key={event.id}>
-                                    <div className="timeline-event__header">
-                                      <h4>{event.summary}</h4>
-                                      <span>{formatEventTimeRange(event)}</span>
-                                    </div>
-                                    <p>{event.sourceName ?? event.source}</p>
-                                  </article>
-                                ))}
-                              </>
+                              eventsForHour.map((event) => (
+                                <article className="timeline-event" key={event.id}>
+                                  <div className="timeline-event__header">
+                                    <h4>{event.summary}</h4>
+                                    <span>{formatEventTimeRange(event)}</span>
+                                  </div>
+                                  <p>{event.sourceName ?? event.source}</p>
+                                </article>
+                              ))
                             ) : (
-                              <>
-                                {isCurrentHour(hour, now) ? <div className="timeline-now">Now</div> : null}
-                                <div className="timeline-row__empty" />
-                              </>
+                              <div className="timeline-row__empty" />
                             )}
                           </div>
                         </div>
