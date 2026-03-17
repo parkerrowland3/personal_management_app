@@ -12,7 +12,17 @@ import {
 import type { Session } from "@supabase/supabase-js";
 
 import { sampleTasks } from "@/lib/sample-data";
-import { DOMAIN_OPTIONS, PRIORITY_OPTIONS, STATUS_OPTIONS, type Domain, type Task, type TaskDraft, type TaskPriority, type TaskStatus } from "@/lib/types";
+import {
+  DOMAIN_OPTIONS,
+  PRIORITY_OPTIONS,
+  STATUS_OPTIONS,
+  type Domain,
+  type GoogleCalendarStatus,
+  type Task,
+  type TaskDraft,
+  type TaskPriority,
+  type TaskStatus
+} from "@/lib/types";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 const EMPTY_TASK: TaskDraft = {
@@ -79,6 +89,13 @@ export function TaskShell() {
   const [activeDomain, setActiveDomain] = useState<Domain | "all">("all");
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
+  const [isCalendarBusy, setIsCalendarBusy] = useState(false);
+  const [calendarStatus, setCalendarStatus] = useState<GoogleCalendarStatus>({
+    configured: false,
+    connected: false,
+    googleEmail: null,
+    calendarId: null
+  });
   const [notice, setNotice] = useState<string | null>(
     isSupabaseConfigured()
       ? null
@@ -87,6 +104,44 @@ export function TaskShell() {
 
   const deferredSearch = useDeferredValue(search);
   const supabase = getSupabaseBrowserClient();
+
+  const getAccessToken = useCallback(async () => {
+    if (!supabase) {
+      return null;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, [supabase]);
+
+  const loadCalendarStatus = useCallback(async () => {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setCalendarStatus({
+        configured: false,
+        connected: false,
+        googleEmail: null,
+        calendarId: null
+      });
+      return;
+    }
+
+    const response = await fetch("/api/google-calendar/status", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setNotice(payload?.error ?? "Unable to load Google Calendar status.");
+      return;
+    }
+
+    const payload = (await response.json()) as GoogleCalendarStatus;
+    setCalendarStatus(payload);
+  }, [getAccessToken]);
 
   const loadTasks = useCallback(
     async (userId: string) => {
@@ -117,6 +172,30 @@ export function TaskShell() {
     },
     [supabase]
   );
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("calendar");
+    const error = params.get("calendar_error");
+
+    if (!connected && !error) {
+      return;
+    }
+
+    if (connected === "connected") {
+      setNotice("Google Calendar connected.");
+      void loadCalendarStatus();
+    }
+
+    if (error) {
+      setNotice(`Google Calendar error: ${error}`);
+    }
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete("calendar");
+    nextUrl.searchParams.delete("calendar_error");
+    window.history.replaceState({}, "", nextUrl.toString());
+  }, [loadCalendarStatus]);
 
   useEffect(() => {
     if (!supabase) {
@@ -179,9 +258,16 @@ export function TaskShell() {
 
       if (nextSession?.user.id) {
         void loadTasks(nextSession.user.id);
+        void loadCalendarStatus();
       } else {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
+        setCalendarStatus({
+          configured: false,
+          connected: false,
+          googleEmail: null,
+          calendarId: null
+        });
         setNotice("Signed out. Demo mode data is shown until you sign in again.");
       }
     });
@@ -190,7 +276,7 @@ export function TaskShell() {
       isMounted = false;
       authSubscription.data.subscription.unsubscribe();
     };
-  }, [loadTasks, supabase]);
+  }, [loadCalendarStatus, loadTasks, supabase]);
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -368,6 +454,137 @@ export function TaskShell() {
     await supabase.auth.signOut();
   }
 
+  async function connectGoogleCalendar() {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before connecting Google Calendar.");
+      return;
+    }
+
+    setIsCalendarBusy(true);
+
+    const response = await fetch("/api/google-calendar/connect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; url?: string }
+      | null;
+
+    if (!response.ok || !payload?.url) {
+      setNotice(payload?.error ?? "Unable to start Google Calendar connection.");
+      setIsCalendarBusy(false);
+      return;
+    }
+
+    window.location.href = payload.url;
+  }
+
+  async function disconnectGoogleCalendar() {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before disconnecting Google Calendar.");
+      return;
+    }
+
+    setIsCalendarBusy(true);
+
+    const response = await fetch("/api/google-calendar/disconnect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setNotice(payload?.error ?? "Unable to disconnect Google Calendar.");
+      setIsCalendarBusy(false);
+      return;
+    }
+
+    setTasks((current) =>
+      current.map((task) => ({
+        ...task,
+        google_calendar_event_id: null,
+        google_calendar_event_url: null,
+        google_calendar_last_synced_at: null
+      }))
+    );
+    setCalendarStatus({
+      configured: true,
+      connected: false,
+      googleEmail: null,
+      calendarId: null
+    });
+    setNotice("Google Calendar disconnected.");
+    setIsCalendarBusy(false);
+  }
+
+  async function syncSelectedTaskToCalendar() {
+    if (!selectedTask) {
+      setNotice("Select a task to sync.");
+      return;
+    }
+
+    if (!selectedTask.due_date) {
+      setNotice("Add a due date before syncing a task to Google Calendar.");
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before syncing tasks to Google Calendar.");
+      return;
+    }
+
+    setIsCalendarBusy(true);
+
+    const response = await fetch("/api/google-calendar/sync-task", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        taskId: selectedTask.id
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: string;
+          task?: Task;
+        }
+      | null;
+
+    if (!response.ok || !payload?.task) {
+      setNotice(payload?.error ?? "Unable to sync the selected task to Google Calendar.");
+      setIsCalendarBusy(false);
+      return;
+    }
+
+    setTasks((current) =>
+      sortTasks(current.map((task) => (task.id === payload.task!.id ? payload.task! : task)))
+    );
+    setSelectedTaskId(payload.task.id);
+    setNotice("Task synced to Google Calendar.");
+    setIsCalendarBusy(false);
+  }
+
+  const canSyncSelectedTask =
+    Boolean(session?.user.id) &&
+    calendarStatus.connected &&
+    Boolean(selectedTask?.due_date) &&
+    !selectedTask?.id.startsWith("sample-");
+
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -440,11 +657,41 @@ export function TaskShell() {
 
         <section className="panel panel--soft">
           <div className="panel__header">
-            <h2>Workflow</h2>
+            <h2>Google Calendar</h2>
           </div>
-          <p className="muted">
-            Capture ideas in backlog, pull real work into today, and close loops in done.
-          </p>
+          {!session ? (
+            <p className="muted">Sign in to connect your Google Calendar.</p>
+          ) : !calendarStatus.configured ? (
+            <p className="muted">
+              Add Google OAuth and server-side Supabase env vars to enable calendar syncing.
+            </p>
+          ) : calendarStatus.connected ? (
+            <div className="stack-actions">
+              <p className="muted">
+                Connected to {calendarStatus.googleEmail ?? "your Google account"}.
+              </p>
+              <button
+                className="secondary-button"
+                disabled={isCalendarBusy}
+                onClick={() => void disconnectGoogleCalendar()}
+                type="button"
+              >
+                {isCalendarBusy ? "Working..." : "Disconnect"}
+              </button>
+            </div>
+          ) : (
+            <div className="stack-actions">
+              <p className="muted">Authorize Google Calendar to push due-dated tasks as events.</p>
+              <button
+                className="secondary-button"
+                disabled={isCalendarBusy}
+                onClick={() => void connectGoogleCalendar()}
+                type="button"
+              >
+                {isCalendarBusy ? "Working..." : "Connect Google Calendar"}
+              </button>
+            </div>
+          )}
         </section>
       </aside>
 
@@ -679,6 +926,31 @@ export function TaskShell() {
             <button className="danger-button" onClick={() => void deleteSelectedTask()} type="button">
               Delete task
             </button>
+            <button
+              className="secondary-button"
+              disabled={!canSyncSelectedTask || isCalendarBusy}
+              onClick={() => void syncSelectedTaskToCalendar()}
+              type="button"
+            >
+              {isCalendarBusy
+                ? "Syncing..."
+                : selectedTask.google_calendar_event_id
+                  ? "Update Google Calendar event"
+                  : "Sync to Google Calendar"}
+            </button>
+            {selectedTask.google_calendar_event_url ? (
+              <a
+                className="text-link"
+                href={selectedTask.google_calendar_event_url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open in Google Calendar
+              </a>
+            ) : null}
+            {!selectedTask.due_date ? (
+              <p className="muted">Add a due date to sync this task as an all-day event.</p>
+            ) : null}
           </div>
         ) : (
           <div className="empty-state empty-state--detail">

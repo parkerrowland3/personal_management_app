@@ -246,6 +246,12 @@ textarea {
   color: #7d3f27;
 }
 
+.stack-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
 .notice {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -384,6 +390,15 @@ label {
   flex-direction: column;
   gap: 0.45rem;
   font-size: 0.92rem;
+}
+
+.text-link {
+  color: #59492f;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 1240px) {

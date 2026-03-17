@@ -15,6 +15,9 @@ export type Task = {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
+  google_calendar_event_id?: string | null;
+  google_calendar_event_url?: string | null;
+  google_calendar_last_synced_at?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -24,3 +27,9 @@ export type TaskDraft = Pick<
   "title" | "description" | "domain" | "status" | "priority" | "due_date"
 >;
 
+export type GoogleCalendarStatus = {
+  configured: boolean;
+  connected: boolean;
+  googleEmail: string | null;
+  calendarId: string | null;
+};

@@ -15,6 +15,7 @@ Focus Desk is a Notion-inspired personal task manager built with Next.js and Sup
 - Tasks organized by `personal`, `work`, and `school`
 - Status lanes for `backlog`, `today`, `in_progress`, and `done`
 - Priority and due date tracking
+- Google Calendar integration for one-click task syncing
 - Notion-like soft panel layout with an editorial dashboard feel
 - Demo mode when Supabase environment variables are missing
 
@@ -42,12 +43,17 @@ cp .env.example .env.local
 
 - `Project URL`
 - `anon public` key
+- `service_role` key
 
 7. Add those values to `.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_OAUTH_STATE_SECRET=...
 ```
 
 8. In Supabase, go to `Authentication > URL Configuration` and set:
@@ -87,6 +93,42 @@ The task table includes:
 
 Row level security is enabled so each authenticated user can only access their own tasks.
 
+### Google Calendar integration
+
+This app now supports a server-side Google Calendar integration. It stores the Google OAuth connection in Supabase and lets authenticated users sync a due-dated task to their primary Google Calendar as an all-day event.
+
+#### Google Cloud setup
+
+1. Open Google Cloud Console.
+2. Create or select a project.
+3. Enable the Google Calendar API.
+4. Go to `APIs & Services > Credentials`.
+5. Create an `OAuth client ID`.
+6. Choose `Web application`.
+7. Add these authorized redirect URIs:
+
+- `http://localhost:3000/api/google-calendar/callback`
+- `https://your-project-name.vercel.app/api/google-calendar/callback`
+
+If you use a custom domain, add that callback URL too.
+
+8. Copy the client ID and client secret into your environment variables.
+
+#### Required environment variables
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_STATE_SECRET`
+
+`GOOGLE_OAUTH_STATE_SECRET` should be a long random string. `SUPABASE_SERVICE_ROLE_KEY` must only be stored server-side in `.env.local` and Vercel, never exposed as a `NEXT_PUBLIC_` variable.
+
+#### Apply the schema update
+
+If you already ran the old schema, re-run [supabase/schema.sql](/Users/parkerrowland3/Documents/Projects/personal_management_app/supabase/schema.sql). It is written with `if not exists` and `add column if not exists`, so it can be safely re-applied.
+
 ## Deploy to Vercel
 
 1. Push this repo to GitHub.
@@ -97,6 +139,10 @@ Row level security is enabled so each authenticated user can only access their o
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_STATE_SECRET`
 
 4. In Supabase, update `Authentication > URL Configuration` with your production Vercel URL.
 
@@ -107,7 +153,11 @@ Example:
 
 If you later attach a custom domain, add that URL too.
 
-5. Deploy.
+5. In Google Cloud, add the matching production OAuth callback URL:
+
+- `https://your-project-name.vercel.app/api/google-calendar/callback`
+
+6. Deploy.
 
 Vercel will run the standard Next.js build automatically.
 
@@ -120,20 +170,23 @@ Vercel will run the standard Next.js build automatically.
 5. Import into Vercel.
 6. Set the same env vars in Vercel.
 7. Update Supabase auth redirect URLs to match production.
-8. Redeploy if needed.
+8. Update Google OAuth redirect URLs to match production.
+9. Redeploy if needed.
 
 ## Project structure
 
 - [src/app/page.tsx](/Users/parkerrowland3/Documents/Projects/personal_management_app/src/app/page.tsx) renders the main dashboard.
 - [src/components/task-shell.tsx](/Users/parkerrowland3/Documents/Projects/personal_management_app/src/components/task-shell.tsx) contains the client-side app logic and UI.
 - [src/lib/supabase.ts](/Users/parkerrowland3/Documents/Projects/personal_management_app/src/lib/supabase.ts) initializes the browser Supabase client.
+- [src/lib/google-calendar.ts](/Users/parkerrowland3/Documents/Projects/personal_management_app/src/lib/google-calendar.ts) handles Google OAuth, token refresh, and event payload generation.
+- [src/app/api/google-calendar/sync-task/route.ts](/Users/parkerrowland3/Documents/Projects/personal_management_app/src/app/api/google-calendar/sync-task/route.ts) creates or updates Google Calendar events for tasks.
 - [supabase/schema.sql](/Users/parkerrowland3/Documents/Projects/personal_management_app/supabase/schema.sql) defines the database schema and policies.
 
 ## Important behavior
 
 - Without Supabase env vars, the app runs in demo mode with sample tasks.
 - With Supabase configured, users sign in by email and tasks persist to Supabase.
-- The UI is entirely client-side for simplicity and clean Vercel deployment.
+- Google Calendar syncing requires the additional server-side env vars listed above.
 
 ## Commands
 

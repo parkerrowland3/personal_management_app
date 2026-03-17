@@ -8,7 +8,10 @@ export const sampleTasks: Task[] = [
     domain: "personal",
     status: "today",
     priority: "medium",
-    due_date: new Date().toISOString().slice(0, 10)
+    due_date: new Date().toISOString().slice(0, 10),
+    google_calendar_event_id: null,
+    google_calendar_event_url: null,
+    google_calendar_last_synced_at: null
   },
   {
     id: "sample-2",
@@ -17,7 +20,10 @@ export const sampleTasks: Task[] = [
     domain: "work",
     status: "in_progress",
     priority: "high",
-    due_date: null
+    due_date: null,
+    google_calendar_event_id: null,
+    google_calendar_event_url: null,
+    google_calendar_last_synced_at: null
   },
   {
     id: "sample-3",
@@ -26,7 +32,10 @@ export const sampleTasks: Task[] = [
     domain: "school",
     status: "backlog",
     priority: "medium",
-    due_date: null
+    due_date: null,
+    google_calendar_event_id: null,
+    google_calendar_event_url: null,
+    google_calendar_last_synced_at: null
   },
   {
     id: "sample-4",
@@ -35,7 +44,9 @@ export const sampleTasks: Task[] = [
     domain: "personal",
     status: "done",
     priority: "low",
-    due_date: null
+    due_date: null,
+    google_calendar_event_id: null,
+    google_calendar_event_url: null,
+    google_calendar_last_synced_at: null
   }
 ];
-
