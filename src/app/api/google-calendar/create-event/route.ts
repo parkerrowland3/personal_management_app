@@ -11,6 +11,7 @@ type CreateEventRequest = {
   allDay?: boolean;
   startTime?: string | null;
   endTime?: string | null;
+  timeZone?: string | null;
 };
 
 function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "title" | "date">> & {
@@ -18,6 +19,7 @@ function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "tit
   allDay: boolean;
   startTime: string | null;
   endTime: string | null;
+  timeZone: string | null;
 }) {
   if (payload.allDay) {
     const endDate = new Date(`${payload.date}T00:00:00`);
@@ -39,6 +41,10 @@ function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "tit
     throw new Error("Start time and end time are required for timed events.");
   }
 
+  if (!payload.timeZone) {
+    throw new Error("Time zone is required for timed events.");
+  }
+
   const startDateTime = `${payload.date}T${payload.startTime}:00`;
   const endDateTime = `${payload.date}T${payload.endTime}:00`;
 
@@ -50,10 +56,12 @@ function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "tit
     summary: payload.title,
     description: payload.description,
     start: {
-      dateTime: startDateTime
+      dateTime: startDateTime,
+      timeZone: payload.timeZone
     },
     end: {
-      dateTime: endDateTime
+      dateTime: endDateTime,
+      timeZone: payload.timeZone
     }
   };
 }
@@ -132,7 +140,8 @@ export async function POST(request: Request) {
             date,
             allDay: Boolean(body.allDay),
             startTime: body.startTime ?? null,
-            endTime: body.endTime ?? null
+            endTime: body.endTime ?? null,
+            timeZone: body.timeZone ?? null
           })
         )
       }
