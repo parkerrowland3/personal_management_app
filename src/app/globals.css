@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f3efe6;
   --bg-elevated: rgba(255, 252, 246, 0.82);
   --panel: rgba(255, 250, 242, 0.84);
@@ -16,6 +17,75 @@
   --high: #a35d3f;
   --medium: #b58741;
   --low: #7c8d78;
+  --field-bg: rgba(255, 255, 255, 0.74);
+  --field-focus-bg: #fffdf9;
+  --panel-soft: rgba(244, 238, 228, 0.84);
+  --chip-bg: rgba(109, 95, 69, 0.1);
+  --chip-active-bg: rgba(255, 255, 255, 0.72);
+  --secondary-bg: rgba(109, 95, 69, 0.12);
+  --danger-bg: rgba(163, 93, 63, 0.12);
+  --danger-text: #7d3f27;
+  --notice-bg: rgba(255, 251, 244, 0.9);
+  --card-bg: rgba(255, 255, 255, 0.76);
+  --card-bg-soft: rgba(255, 255, 255, 0.7);
+  --calendar-surface: rgba(255, 255, 255, 0.58);
+  --empty-bg: rgba(255, 255, 255, 0.38);
+  --overlay-bg: rgba(47, 38, 27, 0.24);
+  --separator: rgba(90, 73, 53, 0.08);
+  --timeline-empty-bg: rgba(109, 95, 69, 0.06);
+  --now-bg: rgba(163, 93, 63, 0.12);
+  --now-text: #8f5033;
+  --now-line: #c56842;
+  --link: #59492f;
+  --priority-low-text: #53624f;
+  --priority-medium-text: #7e5a23;
+  --priority-high-text: #89452a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #161312;
+    --bg-elevated: rgba(28, 24, 23, 0.82);
+    --panel: rgba(29, 24, 23, 0.86);
+    --panel-strong: #221d1b;
+    --line: rgba(226, 210, 192, 0.12);
+    --line-strong: rgba(226, 210, 192, 0.22);
+    --text: #f2e9dc;
+    --muted: #b9ab9a;
+    --accent: #d0b188;
+    --accent-soft: #6f5c46;
+    --shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+    --personal: #8b775a;
+    --work: #5d7565;
+    --school: #70678a;
+    --high: #d07a57;
+    --medium: #cfaa5c;
+    --low: #88a082;
+    --field-bg: rgba(255, 255, 255, 0.06);
+    --field-focus-bg: rgba(255, 255, 255, 0.1);
+    --panel-soft: rgba(42, 35, 33, 0.9);
+    --chip-bg: rgba(255, 255, 255, 0.08);
+    --chip-active-bg: rgba(255, 255, 255, 0.08);
+    --secondary-bg: rgba(255, 255, 255, 0.08);
+    --danger-bg: rgba(208, 122, 87, 0.16);
+    --danger-text: #f0b39a;
+    --notice-bg: rgba(255, 255, 255, 0.06);
+    --card-bg: rgba(255, 255, 255, 0.05);
+    --card-bg-soft: rgba(255, 255, 255, 0.04);
+    --calendar-surface: rgba(255, 255, 255, 0.04);
+    --empty-bg: rgba(255, 255, 255, 0.03);
+    --overlay-bg: rgba(0, 0, 0, 0.46);
+    --separator: rgba(255, 255, 255, 0.08);
+    --timeline-empty-bg: rgba(255, 255, 255, 0.06);
+    --now-bg: rgba(208, 122, 87, 0.18);
+    --now-text: #ffceb8;
+    --now-line: #ff8f63;
+    --link: #f1cfaa;
+    --priority-low-text: #bfd3b8;
+    --priority-medium-text: #f2d08b;
+    --priority-high-text: #f3b39a;
+  }
 }
 
 * {
@@ -57,7 +127,7 @@ textarea {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.74);
+  background: var(--field-bg);
   padding: 0.85rem 0.95rem;
   color: var(--text);
   transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
@@ -68,7 +138,7 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--accent);
-  background: #fffdf9;
+  background: var(--field-focus-bg);
 }
 
 textarea {
@@ -135,7 +205,7 @@ textarea {
 }
 
 .panel--soft {
-  background: rgba(244, 238, 228, 0.84);
+  background: var(--panel-soft);
 }
 
 .panel__header {
@@ -196,14 +266,14 @@ textarea {
   min-width: 1.8rem;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  background: rgba(109, 95, 69, 0.1);
+  background: var(--chip-bg);
   color: var(--muted);
   font-size: 0.78rem;
 }
 
 .filter-chip--active {
   border-color: var(--line);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--chip-active-bg);
 }
 
 .auth-form,
@@ -239,13 +309,13 @@ textarea {
 }
 
 .secondary-button {
-  background: rgba(109, 95, 69, 0.12);
+  background: var(--secondary-bg);
   color: var(--text);
 }
 
 .danger-button {
-  background: rgba(163, 93, 63, 0.12);
-  color: #7d3f27;
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .stack-actions {
@@ -258,7 +328,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 0.9rem 1rem;
-  background: rgba(255, 251, 244, 0.9);
+  background: var(--notice-bg);
   color: var(--muted);
 }
 
@@ -296,7 +366,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--card-bg);
   text-align: left;
   transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
@@ -358,17 +428,17 @@ textarea {
 
 .priority-pill--low {
   background: rgba(124, 141, 120, 0.18);
-  color: #53624f;
+  color: var(--priority-low-text);
 }
 
 .priority-pill--medium {
   background: rgba(181, 135, 65, 0.16);
-  color: #7e5a23;
+  color: var(--priority-medium-text);
 }
 
 .priority-pill--high {
   background: rgba(163, 93, 63, 0.16);
-  color: #89452a;
+  color: var(--priority-high-text);
 }
 
 .empty-state {
@@ -378,7 +448,7 @@ textarea {
   border: 1px dashed var(--line);
   border-radius: 18px;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.38);
+  background: var(--empty-bg);
 }
 
 .empty-state--detail {
@@ -394,7 +464,7 @@ label {
 }
 
 .text-link {
-  color: #59492f;
+  color: var(--link);
   text-decoration: none;
 }
 
@@ -412,7 +482,7 @@ label {
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--card-bg-soft);
 }
 
 .calendar-event-card__header {
@@ -445,7 +515,7 @@ label {
   display: flex;
   justify-content: flex-end;
   padding: 1.25rem;
-  background: rgba(47, 38, 27, 0.24);
+  background: var(--overlay-bg);
   backdrop-filter: blur(8px);
 }
 
@@ -459,7 +529,7 @@ label {
 .icon-button {
   border: 0;
   border-radius: 999px;
-  background: rgba(109, 95, 69, 0.12);
+  background: var(--secondary-bg);
   color: var(--text);
   padding: 0.55rem 0.85rem;
 }
@@ -486,7 +556,7 @@ label {
   border: 1px solid var(--line);
   border-radius: 20px;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--calendar-surface);
 }
 
 .calendar-card__header,
@@ -552,7 +622,7 @@ label {
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.5rem 0;
-  border-top: 1px solid rgba(90, 73, 53, 0.08);
+  border-top: 1px solid var(--separator);
   min-height: 72px;
 }
 
@@ -575,7 +645,7 @@ label {
 .timeline-row__empty {
   min-height: 1.25rem;
   border-radius: 999px;
-  background: rgba(109, 95, 69, 0.06);
+  background: var(--timeline-empty-bg);
 }
 
 .timeline-now-line {
@@ -595,14 +665,14 @@ label {
   justify-self: end;
   border-radius: 999px;
   padding: 0.18rem 0.55rem;
-  background: rgba(163, 93, 63, 0.12);
-  color: #8f5033;
+  background: var(--now-bg);
+  color: var(--now-text);
   font-size: 0.74rem;
 }
 
 .timeline-now-line__rule {
   height: 2px;
-  background: #c56842;
+  background: var(--now-line);
   border-radius: 999px;
 }
 
@@ -615,7 +685,7 @@ label {
   padding: 0.8rem 0.9rem;
   border: 1px solid var(--line);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--card-bg);
 }
 
 .feed-item--button {
@@ -651,7 +721,7 @@ label {
 
 .future-day {
   padding: 0.9rem 0;
-  border-top: 1px solid rgba(90, 73, 53, 0.08);
+  border-top: 1px solid var(--separator);
 }
 
 .future-day:first-child {
