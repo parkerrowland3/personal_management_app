@@ -271,8 +271,8 @@ export async function listCalendarEvents(
   );
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
-  url.searchParams.set("maxResults", "20");
-  url.searchParams.set("timeMin", new Date().toISOString());
+  url.searchParams.set("maxResults", "100");
+  url.searchParams.set("timeMin", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
 
   const response = await fetch(url, {
     headers: {

@@ -121,6 +121,7 @@ export function TaskShell() {
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
+  const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState<string | null>(
     isSupabaseConfigured()
       ? null
@@ -297,6 +298,14 @@ export function TaskShell() {
       document.body.style.overflow = "";
     };
   }, [anyOverlayOpen]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(new Date());
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -1219,6 +1228,7 @@ export function TaskShell() {
                   <p className="eyebrow">Today</p>
                   <h3>{formatDayHeading(new Date())}</h3>
                 </div>
+                <span className="now-pill">Now {formatNow(now)}</span>
               </div>
 
               {!session ? (
@@ -1256,17 +1266,23 @@ export function TaskShell() {
                           <div className="timeline-row__hour">{formatHour(hour)}</div>
                           <div className="timeline-row__events">
                             {eventsForHour.length ? (
-                              eventsForHour.map((event) => (
-                                <article className="timeline-event" key={event.id}>
-                                  <div className="timeline-event__header">
-                                    <h4>{event.summary}</h4>
-                                    <span>{formatEventTimeRange(event)}</span>
-                                  </div>
-                                  <p>{event.sourceName ?? event.source}</p>
-                                </article>
-                              ))
+                              <>
+                                {isCurrentHour(hour, now) ? <div className="timeline-now">Now</div> : null}
+                                {eventsForHour.map((event) => (
+                                  <article className="timeline-event" key={event.id}>
+                                    <div className="timeline-event__header">
+                                      <h4>{event.summary}</h4>
+                                      <span>{formatEventTimeRange(event)}</span>
+                                    </div>
+                                    <p>{event.sourceName ?? event.source}</p>
+                                  </article>
+                                ))}
+                              </>
                             ) : (
-                              <div className="timeline-row__empty" />
+                              <>
+                                {isCurrentHour(hour, now) ? <div className="timeline-now">Now</div> : null}
+                                <div className="timeline-row__empty" />
+                              </>
                             )}
                           </div>
                         </div>
@@ -1652,7 +1668,7 @@ function isSameDay(value: string | null, date: Date) {
     return false;
   }
 
-  const eventDate = new Date(value);
+  const eventDate = parseEventDate(value);
 
   return (
     eventDate.getFullYear() === date.getFullYear() &&
@@ -1709,4 +1725,24 @@ function formatEventTimeRange(event: CalendarEvent) {
     hour: "numeric",
     minute: "2-digit"
   }).format(end)}`;
+}
+
+function parseEventDate(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  return new Date(value);
+}
+
+function isCurrentHour(hour: number, now: Date) {
+  return hour === now.getHours();
+}
+
+function formatNow(now: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(now);
 }

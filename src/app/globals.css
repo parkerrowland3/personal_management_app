@@ -201,6 +201,16 @@ textarea {
   font-size: 0.78rem;
 }
 
+.now-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  background: rgba(163, 93, 63, 0.12);
+  color: #8f5033;
+  font-size: 0.82rem;
+}
+
 .filter-chip--active {
   border-color: var(--line);
   background: rgba(255, 255, 255, 0.72);
@@ -574,6 +584,15 @@ label {
   min-height: 1.25rem;
   border-radius: 999px;
   background: rgba(109, 95, 69, 0.06);
+}
+
+.timeline-now {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  background: rgba(163, 93, 63, 0.12);
+  color: #8f5033;
+  font-size: 0.76rem;
 }
 
 .timeline-event,
