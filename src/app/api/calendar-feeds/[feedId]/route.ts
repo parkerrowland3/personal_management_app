@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAuthenticatedUserFromRequest } from "@/lib/server-auth";
 import { getSupabaseAdminClient, isServerSupabaseConfigured } from "@/lib/supabase-admin";
+import { DOMAIN_OPTIONS, type Domain } from "@/lib/types";
 
 export async function PATCH(
   request: Request,
@@ -26,7 +27,11 @@ export async function PATCH(
   }
 
   const { feedId } = await context.params;
-  const { name, url } = (await request.json()) as { name?: string; url?: string };
+  const { name, url, domain } = (await request.json()) as {
+    name?: string;
+    url?: string;
+    domain?: Domain;
+  };
 
   if (!url?.trim()) {
     return NextResponse.json({ error: "Feed URL is required." }, { status: 400 });
@@ -42,16 +47,21 @@ export async function PATCH(
     return NextResponse.json({ error: "Enter a valid ICS URL." }, { status: 400 });
   }
 
+  if (!domain || !DOMAIN_OPTIONS.includes(domain)) {
+    return NextResponse.json({ error: "Select a valid space for the feed." }, { status: 400 });
+  }
+
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("calendar_feeds")
     .update({
       name: name?.trim() || null,
-      url: url.trim()
+      url: url.trim(),
+      domain
     })
     .eq("id", feedId)
     .eq("user_id", user.id)
-    .select("id, name, url")
+    .select("id, name, url, domain")
     .single();
 
   if (error) {

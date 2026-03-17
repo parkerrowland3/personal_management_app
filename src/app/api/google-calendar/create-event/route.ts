@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { ensureFreshAccessToken, type GoogleCalendarConnectionRecord } from "@/lib/google-calendar";
 import { getAuthenticatedUserFromRequest } from "@/lib/server-auth";
 import { getSupabaseAdminClient, isServerSupabaseConfigured } from "@/lib/supabase-admin";
+import { DOMAIN_OPTIONS, type Domain } from "@/lib/types";
 
 type CreateEventRequest = {
   title?: string;
@@ -12,6 +13,7 @@ type CreateEventRequest = {
   startTime?: string | null;
   endTime?: string | null;
   timeZone?: string | null;
+  domain?: Domain | null;
 };
 
 function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "title" | "date">> & {
@@ -20,6 +22,7 @@ function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "tit
   startTime: string | null;
   endTime: string | null;
   timeZone: string | null;
+  domain: Domain | null;
 }) {
   if (payload.allDay) {
     const endDate = new Date(`${payload.date}T00:00:00`);
@@ -33,6 +36,11 @@ function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "tit
       },
       end: {
         date: endDate.toISOString().slice(0, 10)
+      },
+      extendedProperties: {
+        private: {
+          focusDeskDomain: payload.domain ?? "personal"
+        }
       }
     };
   }
@@ -62,6 +70,11 @@ function buildManualEventPayload(payload: Required<Pick<CreateEventRequest, "tit
     end: {
       dateTime: endDateTime,
       timeZone: payload.timeZone
+    },
+    extendedProperties: {
+      private: {
+        focusDeskDomain: payload.domain ?? "personal"
+      }
     }
   };
 }
@@ -87,6 +100,10 @@ export async function POST(request: Request) {
 
   if (!title || !date) {
     return NextResponse.json({ error: "Title and date are required." }, { status: 400 });
+  }
+
+  if (body.domain && !DOMAIN_OPTIONS.includes(body.domain)) {
+    return NextResponse.json({ error: "Select a valid space for the event." }, { status: 400 });
   }
 
   const supabase = getSupabaseAdminClient();
@@ -141,7 +158,8 @@ export async function POST(request: Request) {
             allDay: Boolean(body.allDay),
             startTime: body.startTime ?? null,
             endTime: body.endTime ?? null,
-            timeZone: body.timeZone ?? null
+            timeZone: body.timeZone ?? null,
+            domain: body.domain ?? "personal"
           })
         )
       }

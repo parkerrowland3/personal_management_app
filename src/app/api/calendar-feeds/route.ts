@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAuthenticatedUserFromRequest } from "@/lib/server-auth";
 import { getSupabaseAdminClient, isServerSupabaseConfigured } from "@/lib/supabase-admin";
+import { DOMAIN_OPTIONS, type Domain } from "@/lib/types";
 
 export async function GET(request: Request) {
   const nextRequest = request as unknown as import("next/server").NextRequest;
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("calendar_feeds")
-    .select("id, name, url")
+    .select("id, name, url, domain")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
@@ -47,9 +48,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const { name, url } = (await request.json()) as {
+  const { name, url, domain } = (await request.json()) as {
     name?: string;
     url?: string;
+    domain?: Domain;
   };
 
   if (!url) {
@@ -66,15 +68,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid ICS URL." }, { status: 400 });
   }
 
+  if (!domain || !DOMAIN_OPTIONS.includes(domain)) {
+    return NextResponse.json({ error: "Select a valid space for the feed." }, { status: 400 });
+  }
+
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("calendar_feeds")
     .insert({
       user_id: user.id,
       name: name?.trim() || null,
-      url: url.trim()
+      url: url.trim(),
+      domain
     })
-    .select("id, name, url")
+    .select("id, name, url, domain")
     .single();
 
   if (error) {
@@ -83,4 +90,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ feed: data });
 }
-

@@ -36,10 +36,15 @@ create table if not exists public.calendar_feeds (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text,
   url text not null,
+  domain text not null default 'personal' check (domain in ('personal', 'work', 'school')),
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   unique (user_id, url)
 );
+
+alter table public.calendar_feeds add column if not exists domain text;
+update public.calendar_feeds set domain = 'personal' where domain is null;
+alter table public.calendar_feeds alter column domain set default 'personal';
 
 create or replace function public.set_updated_at()
 returns trigger

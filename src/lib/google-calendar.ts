@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
-import type { Task } from "@/lib/types";
+import type { Domain, Task } from "@/lib/types";
 
 type OAuthStatePayload = {
   nonce: string;
@@ -39,6 +39,12 @@ export type GoogleCalendarEventRecord = {
   end?: {
     date?: string;
     dateTime?: string;
+  };
+  extendedProperties?: {
+    private?: {
+      focusDeskTaskId?: string;
+      focusDeskDomain?: Domain;
+    };
   };
 };
 
@@ -256,7 +262,8 @@ export function buildCalendarEventPayload(task: Task) {
     },
     extendedProperties: {
       private: {
-        focusDeskTaskId: task.id
+        focusDeskTaskId: task.id,
+        focusDeskDomain: task.domain
       }
     }
   };

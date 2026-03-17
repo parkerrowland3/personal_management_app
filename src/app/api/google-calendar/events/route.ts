@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       .maybeSingle(),
     supabase
       .from("calendar_feeds")
-      .select("id, name, url")
+      .select("id, name, url, domain")
       .eq("user_id", user.id)
       .order("created_at", { ascending: true })
   ]);
@@ -83,7 +83,8 @@ export async function GET(request: Request) {
           end: event.end?.dateTime ?? event.end?.date ?? null,
           isAllDay: Boolean(event.start?.date && !event.start?.dateTime),
           source: "google" as const,
-          sourceName: connection.google_email ?? "Google Calendar"
+          sourceName: connection.google_email ?? "Google Calendar",
+          domain: event.extendedProperties?.private?.focusDeskDomain ?? null
         }))
       );
     }

@@ -40,6 +40,9 @@
   --priority-low-text: #53624f;
   --priority-medium-text: #7e5a23;
   --priority-high-text: #89452a;
+  --space-glow-1: rgba(214, 198, 167, 0.18);
+  --space-glow-2: rgba(195, 191, 214, 0.14);
+  --space-accent: var(--accent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -85,6 +88,9 @@
     --priority-low-text: #bfd3b8;
     --priority-medium-text: #f2d08b;
     --priority-high-text: #f3b39a;
+    --space-glow-1: rgba(214, 198, 167, 0.12);
+    --space-glow-2: rgba(195, 191, 214, 0.1);
+    --space-accent: var(--accent);
   }
 }
 
@@ -137,7 +143,7 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--space-accent);
   background: var(--field-focus-bg);
 }
 
@@ -146,11 +152,42 @@ textarea {
 }
 
 .shell {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 1.25rem;
   min-height: 100vh;
   padding: 1.25rem;
+}
+
+.shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(circle at top left, var(--space-glow-1), transparent 28%),
+    radial-gradient(circle at bottom right, var(--space-glow-2), transparent 24%);
+  pointer-events: none;
+}
+
+.shell[data-space="personal"] {
+  --space-glow-1: rgba(214, 198, 167, 0.28);
+  --space-glow-2: rgba(214, 198, 167, 0.12);
+  --space-accent: #8a7353;
+}
+
+.shell[data-space="work"] {
+  --space-glow-1: rgba(183, 200, 190, 0.26);
+  --space-glow-2: rgba(183, 200, 190, 0.1);
+  --space-accent: #6c8b79;
+}
+
+.shell[data-space="school"] {
+  --space-glow-1: rgba(195, 191, 214, 0.26);
+  --space-glow-2: rgba(195, 191, 214, 0.12);
+  --space-accent: #7b7198;
 }
 
 .sidebar,
@@ -304,7 +341,7 @@ textarea {
 }
 
 .primary-button {
-  background: var(--accent);
+  background: var(--space-accent);
   color: #fdf8ef;
 }
 

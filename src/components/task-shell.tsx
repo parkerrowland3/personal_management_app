@@ -43,7 +43,8 @@ const EMPTY_EVENT_DRAFT = {
   date: new Date().toISOString().slice(0, 10),
   allDay: false,
   startTime: "09:00",
-  endTime: "10:00"
+  endTime: "10:00",
+  domain: "personal" as Domain
 };
 
 const statusLabels: Record<TaskStatus, string> = {
@@ -107,8 +108,10 @@ export function TaskShell() {
   const [activeDomain, setActiveDomain] = useState<Domain | "all">("all");
   const [feedName, setFeedName] = useState("");
   const [feedUrl, setFeedUrl] = useState("");
+  const [feedDomain, setFeedDomain] = useState<Domain>("personal");
   const [feedEditName, setFeedEditName] = useState("");
   const [feedEditUrl, setFeedEditUrl] = useState("");
+  const [feedEditDomain, setFeedEditDomain] = useState<Domain>("personal");
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
@@ -436,9 +439,15 @@ export function TaskShell() {
     }));
   }, [tasks]);
 
+  const visibleCalendarEvents = useMemo(() => {
+    return calendarEvents.filter(
+      (event) => activeDomain === "all" || event.domain === activeDomain
+    );
+  }, [activeDomain, calendarEvents]);
+
   const todayEvents = useMemo(
-    () => calendarEvents.filter((event) => isSameDay(event.start, new Date())),
-    [calendarEvents]
+    () => visibleCalendarEvents.filter((event) => isSameDay(event.start, new Date())),
+    [visibleCalendarEvents]
   );
 
   const nextFiveDayBuckets = useMemo(() => {
@@ -447,10 +456,10 @@ export function TaskShell() {
 
       return {
         date,
-        events: calendarEvents.filter((event) => isSameDay(event.start, date))
+        events: visibleCalendarEvents.filter((event) => isSameDay(event.start, date))
       };
     });
-  }, [calendarEvents]);
+  }, [visibleCalendarEvents]);
 
   const todayAllDayEvents = useMemo(
     () => todayEvents.filter((event) => event.isAllDay),
@@ -806,7 +815,8 @@ export function TaskShell() {
       },
       body: JSON.stringify({
         name: feedName,
-        url: feedUrl
+        url: feedUrl,
+        domain: feedDomain
       })
     });
 
@@ -823,6 +833,7 @@ export function TaskShell() {
     setCalendarFeeds((current) => [...current, payload.feed!]);
     setFeedName("");
     setFeedUrl("");
+    setFeedDomain(activeDomain === "all" ? "personal" : activeDomain);
     await loadCalendarEvents();
     setNotice("Calendar feed added.");
     setIsFeedBusy(false);
@@ -852,7 +863,8 @@ export function TaskShell() {
       },
       body: JSON.stringify({
         name: feedEditName,
-        url: feedEditUrl
+        url: feedEditUrl,
+        domain: feedEditDomain
       })
     });
 
@@ -912,6 +924,7 @@ export function TaskShell() {
     setSelectedFeed(feed);
     setFeedEditName(feed.name ?? "");
     setFeedEditUrl(feed.url);
+    setFeedEditDomain(feed.domain);
     setIsFeedDetailOverlayOpen(true);
   }
 
@@ -924,7 +937,7 @@ export function TaskShell() {
   const hasCalendarSources = calendarStatus.connected || calendarFeeds.length > 0;
 
   return (
-    <main className="shell">
+    <main className="shell" data-space={activeDomain}>
       <aside className="sidebar">
         <div className="sidebar__top">
           <p className="eyebrow">Personal OS</p>
@@ -1206,7 +1219,7 @@ export function TaskShell() {
         <section className="panel calendar-panel">
           <div className="panel__header">
             <h2>Calendar</h2>
-            <span className="count-pill">{calendarEvents.length}</span>
+            <span className="count-pill">{visibleCalendarEvents.length}</span>
           </div>
 
           <div className="calendar-panel__actions">
@@ -1490,6 +1503,24 @@ export function TaskShell() {
                   value={eventDraft.date}
                 />
               </label>
+              <label>
+                Space
+                <select
+                  onChange={(event) =>
+                    setEventDraft((current) => ({
+                      ...current,
+                      domain: event.target.value as Domain
+                    }))
+                  }
+                  value={eventDraft.domain}
+                >
+                  {DOMAIN_OPTIONS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domainLabels[domain]}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="checkbox-row">
                 <input
                   checked={eventDraft.allDay}
@@ -1558,6 +1589,19 @@ export function TaskShell() {
                     value={feedUrl}
                   />
                 </label>
+                <label>
+                  Space
+                  <select
+                    onChange={(event) => setFeedDomain(event.target.value as Domain)}
+                    value={feedDomain}
+                  >
+                    {DOMAIN_OPTIONS.map((domain) => (
+                      <option key={domain} value={domain}>
+                        {domainLabels[domain]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button className="primary-button" disabled={isFeedBusy || !feedUrl} type="submit">
                   {isFeedBusy ? "Saving..." : "Add feed"}
                 </button>
@@ -1575,6 +1619,9 @@ export function TaskShell() {
                       <strong>{feed.name || "Untitled feed"}</strong>
                       <p>Click to view or edit this feed.</p>
                     </div>
+                    <span className={`domain-pill domain-pill--${feed.domain}`}>
+                      {domainLabels[feed.domain]}
+                    </span>
                   </button>
                 ))}
                 {!calendarFeeds.length ? <p className="muted">No ICS feeds connected yet.</p> : null}
@@ -1602,6 +1649,19 @@ export function TaskShell() {
                   type="url"
                   value={feedEditUrl}
                 />
+              </label>
+              <label>
+                Space
+                <select
+                  onChange={(event) => setFeedEditDomain(event.target.value as Domain)}
+                  value={feedEditDomain}
+                >
+                  {DOMAIN_OPTIONS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domainLabels[domain]}
+                    </option>
+                  ))}
+                </select>
               </label>
               <button className="primary-button" disabled={isFeedBusy || !feedEditUrl} type="submit">
                 {isFeedBusy ? "Saving..." : "Save changes"}

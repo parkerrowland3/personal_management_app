@@ -44,7 +44,8 @@ export async function loadFeedEvents(feed: CalendarFeed): Promise<CalendarEvent[
         end,
         isAllDay,
         source: "ics" as const,
-        sourceName: feed.name ?? new URL(feed.url).hostname
+        sourceName: feed.name ?? new URL(feed.url).hostname,
+        domain: feed.domain
       };
     })
     .filter((event) => {
