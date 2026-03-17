@@ -16,6 +16,7 @@ import {
   DOMAIN_OPTIONS,
   PRIORITY_OPTIONS,
   STATUS_OPTIONS,
+  type CalendarEvent,
   type Domain,
   type GoogleCalendarStatus,
   type Task,
@@ -83,6 +84,7 @@ export function TaskShell() {
   const [session, setSession] = useState<Session | null>(null);
   const [tasks, setTasks] = useState<Task[]>(sampleTasks);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(sampleTasks[0]?.id ?? null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_TASK);
   const [email, setEmail] = useState("");
   const [search, setSearch] = useState("");
@@ -96,6 +98,7 @@ export function TaskShell() {
     googleEmail: null,
     calendarId: null
   });
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [notice, setNotice] = useState<string | null>(
     isSupabaseConfigured()
       ? null
@@ -143,6 +146,35 @@ export function TaskShell() {
     setCalendarStatus(payload);
   }, [getAccessToken]);
 
+  const loadCalendarEvents = useCallback(async () => {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setCalendarEvents([]);
+      return;
+    }
+
+    const response = await fetch("/api/google-calendar/events", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (response.status !== 400) {
+        setNotice(payload?.error ?? "Unable to load Google Calendar events.");
+      }
+
+      setCalendarEvents([]);
+      return;
+    }
+
+    const payload = (await response.json()) as { events: CalendarEvent[] };
+    setCalendarEvents(payload.events);
+  }, [getAccessToken]);
+
   const loadTasks = useCallback(
     async (userId: string) => {
       if (!supabase) {
@@ -185,6 +217,7 @@ export function TaskShell() {
     if (connected === "connected") {
       setNotice("Google Calendar connected.");
       void loadCalendarStatus();
+      void loadCalendarEvents();
     }
 
     if (error) {
@@ -195,7 +228,27 @@ export function TaskShell() {
     nextUrl.searchParams.delete("calendar");
     nextUrl.searchParams.delete("calendar_error");
     window.history.replaceState({}, "", nextUrl.toString());
-  }, [loadCalendarStatus]);
+  }, [loadCalendarEvents, loadCalendarStatus]);
+
+  useEffect(() => {
+    if (!isDetailOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsDetailOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [isDetailOpen]);
 
   useEffect(() => {
     if (!supabase) {
@@ -259,15 +312,18 @@ export function TaskShell() {
       if (nextSession?.user.id) {
         void loadTasks(nextSession.user.id);
         void loadCalendarStatus();
+        void loadCalendarEvents();
       } else {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
+        setIsDetailOpen(false);
         setCalendarStatus({
           configured: false,
           connected: false,
           googleEmail: null,
           calendarId: null
         });
+        setCalendarEvents([]);
         setNotice("Signed out. Demo mode data is shown until you sign in again.");
       }
     });
@@ -276,7 +332,7 @@ export function TaskShell() {
       isMounted = false;
       authSubscription.data.subscription.unsubscribe();
     };
-  }, [loadCalendarStatus, loadTasks, supabase]);
+  }, [loadCalendarEvents, loadCalendarStatus, loadTasks, supabase]);
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -353,6 +409,7 @@ export function TaskShell() {
       const nextTasks = sortTasks([nextTask, ...tasks]);
       setTasks(nextTasks);
       setSelectedTaskId(nextTask.id);
+      setIsDetailOpen(true);
       setDraft(EMPTY_TASK);
       setNotice("Task added in demo mode.");
       return;
@@ -380,6 +437,7 @@ export function TaskShell() {
     const nextTasks = sortTasks([data as Task, ...tasks]);
     setTasks(nextTasks);
     setSelectedTaskId(data.id);
+    setIsDetailOpen(true);
     setDraft(EMPTY_TASK);
     setNotice("Task created.");
     setIsSaving(false);
@@ -429,6 +487,7 @@ export function TaskShell() {
     const fallbackId = tasks.find((task) => task.id !== selectedTask.id)?.id ?? null;
     setTasks((current) => current.filter((task) => task.id !== selectedTask.id));
     setSelectedTaskId(fallbackId);
+    setIsDetailOpen(false);
 
     if (!supabase || !session?.user.id || selectedTask.id.startsWith("sample-")) {
       setNotice("Removed locally in demo mode.");
@@ -523,6 +582,7 @@ export function TaskShell() {
       googleEmail: null,
       calendarId: null
     });
+    setCalendarEvents([]);
     setNotice("Google Calendar disconnected.");
     setIsCalendarBusy(false);
   }
@@ -575,6 +635,7 @@ export function TaskShell() {
       sortTasks(current.map((task) => (task.id === payload.task!.id ? payload.task! : task)))
     );
     setSelectedTaskId(payload.task.id);
+    void loadCalendarEvents();
     setNotice("Task synced to Google Calendar.");
     setIsCalendarBusy(false);
   }
@@ -651,7 +712,9 @@ export function TaskShell() {
               </form>
             )
           ) : (
-            <p className="muted">Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to go live.</p>
+            <p className="muted">
+              Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to go live.
+            </p>
           )}
         </section>
 
@@ -819,7 +882,10 @@ export function TaskShell() {
                   <button
                     className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""}`}
                     key={task.id}
-                    onClick={() => setSelectedTaskId(task.id)}
+                    onClick={() => {
+                      setSelectedTaskId(task.id);
+                      setIsDetailOpen(true);
+                    }}
                     type="button"
                   >
                     <div className="task-card__meta">
@@ -847,117 +913,183 @@ export function TaskShell() {
             </article>
           ))}
         </section>
+
+        <section className="panel">
+          <div className="panel__header">
+            <h2>Upcoming calendar events</h2>
+            <span className="count-pill">{calendarEvents.length}</span>
+          </div>
+          {!session ? (
+            <div className="empty-state">
+              <p>Sign in to load your calendar.</p>
+            </div>
+          ) : !calendarStatus.connected ? (
+            <div className="empty-state">
+              <p>Connect Google Calendar to see upcoming events here.</p>
+            </div>
+          ) : calendarEvents.length ? (
+            <div className="calendar-events">
+              {calendarEvents.map((event) => (
+                <article className="calendar-event-card" key={event.id}>
+                  <div className="calendar-event-card__header">
+                    <h3>{event.summary}</h3>
+                    <span>{formatCalendarEventTime(event)}</span>
+                  </div>
+                  {event.description ? <p>{event.description}</p> : null}
+                  {event.htmlLink ? (
+                    <a
+                      className="text-link"
+                      href={event.htmlLink}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open in Google Calendar
+                    </a>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p>No upcoming events found on your primary calendar.</p>
+            </div>
+          )}
+        </section>
       </section>
 
-      <aside className="detail panel">
-        <div className="panel__header">
-          <h2>Task detail</h2>
+      {isDetailOpen ? (
+        <div className="detail-overlay" onClick={() => setIsDetailOpen(false)} role="presentation">
+          <aside
+            aria-label="Task detail"
+            className="detail-modal panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel__header">
+              <h2>Task detail</h2>
+              <button
+                aria-label="Close task detail"
+                className="icon-button"
+                onClick={() => setIsDetailOpen(false)}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+            {selectedTask ? (
+              <div className="detail__content">
+                <label>
+                  Title
+                  <input
+                    onChange={(event) => void updateSelectedTask({ title: event.target.value })}
+                    value={selectedTask.title}
+                  />
+                </label>
+                <label>
+                  Notes
+                  <textarea
+                    onChange={(event) =>
+                      void updateSelectedTask({ description: event.target.value })
+                    }
+                    rows={8}
+                    value={selectedTask.description ?? ""}
+                  />
+                </label>
+                <label>
+                  Space
+                  <select
+                    onChange={(event) =>
+                      void updateSelectedTask({ domain: event.target.value as Domain })
+                    }
+                    value={selectedTask.domain}
+                  >
+                    {DOMAIN_OPTIONS.map((domain) => (
+                      <option key={domain} value={domain}>
+                        {domainLabels[domain]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Status
+                  <select
+                    onChange={(event) =>
+                      void updateSelectedTask({ status: event.target.value as TaskStatus })
+                    }
+                    value={selectedTask.status}
+                  >
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>
+                        {statusLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Priority
+                  <select
+                    onChange={(event) =>
+                      void updateSelectedTask({ priority: event.target.value as TaskPriority })
+                    }
+                    value={selectedTask.priority}
+                  >
+                    {PRIORITY_OPTIONS.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priorityLabels[priority]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Due date
+                  <input
+                    onChange={(event) =>
+                      void updateSelectedTask({ due_date: event.target.value || null })
+                    }
+                    type="date"
+                    value={selectedTask.due_date ?? ""}
+                  />
+                </label>
+                <button
+                  className="secondary-button"
+                  disabled={!canSyncSelectedTask || isCalendarBusy}
+                  onClick={() => void syncSelectedTaskToCalendar()}
+                  type="button"
+                >
+                  {isCalendarBusy
+                    ? "Syncing..."
+                    : selectedTask.google_calendar_event_id
+                      ? "Update Google Calendar event"
+                      : "Sync to Google Calendar"}
+                </button>
+                {selectedTask.google_calendar_event_url ? (
+                  <a
+                    className="text-link"
+                    href={selectedTask.google_calendar_event_url}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open in Google Calendar
+                  </a>
+                ) : null}
+                {!selectedTask.due_date ? (
+                  <p className="muted">Add a due date to sync this task as an all-day event.</p>
+                ) : null}
+                <button
+                  className="danger-button"
+                  onClick={() => void deleteSelectedTask()}
+                  type="button"
+                >
+                  Delete task
+                </button>
+              </div>
+            ) : (
+              <div className="empty-state empty-state--detail">
+                <p>Select a task to edit it.</p>
+              </div>
+            )}
+          </aside>
         </div>
-        {selectedTask ? (
-          <div className="detail__content">
-            <label>
-              Title
-              <input
-                onChange={(event) => void updateSelectedTask({ title: event.target.value })}
-                value={selectedTask.title}
-              />
-            </label>
-            <label>
-              Notes
-              <textarea
-                onChange={(event) => void updateSelectedTask({ description: event.target.value })}
-                rows={8}
-                value={selectedTask.description ?? ""}
-              />
-            </label>
-            <label>
-              Space
-              <select
-                onChange={(event) =>
-                  void updateSelectedTask({ domain: event.target.value as Domain })
-                }
-                value={selectedTask.domain}
-              >
-                {DOMAIN_OPTIONS.map((domain) => (
-                  <option key={domain} value={domain}>
-                    {domainLabels[domain]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Status
-              <select
-                onChange={(event) =>
-                  void updateSelectedTask({ status: event.target.value as TaskStatus })
-                }
-                value={selectedTask.status}
-              >
-                {STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>
-                    {statusLabels[status]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Priority
-              <select
-                onChange={(event) =>
-                  void updateSelectedTask({ priority: event.target.value as TaskPriority })
-                }
-                value={selectedTask.priority}
-              >
-                {PRIORITY_OPTIONS.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {priorityLabels[priority]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Due date
-              <input
-                onChange={(event) => void updateSelectedTask({ due_date: event.target.value || null })}
-                type="date"
-                value={selectedTask.due_date ?? ""}
-              />
-            </label>
-            <button className="danger-button" onClick={() => void deleteSelectedTask()} type="button">
-              Delete task
-            </button>
-            <button
-              className="secondary-button"
-              disabled={!canSyncSelectedTask || isCalendarBusy}
-              onClick={() => void syncSelectedTaskToCalendar()}
-              type="button"
-            >
-              {isCalendarBusy
-                ? "Syncing..."
-                : selectedTask.google_calendar_event_id
-                  ? "Update Google Calendar event"
-                  : "Sync to Google Calendar"}
-            </button>
-            {selectedTask.google_calendar_event_url ? (
-              <a
-                className="text-link"
-                href={selectedTask.google_calendar_event_url}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Open in Google Calendar
-              </a>
-            ) : null}
-            {!selectedTask.due_date ? (
-              <p className="muted">Add a due date to sync this task as an all-day event.</p>
-            ) : null}
-          </div>
-        ) : (
-          <div className="empty-state empty-state--detail">
-            <p>Select a task to edit it.</p>
-          </div>
-        )}
-      </aside>
+      ) : null}
     </main>
   );
 }
@@ -967,4 +1099,24 @@ function formatDate(value: string) {
     month: "short",
     day: "numeric"
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatCalendarEventTime(event: CalendarEvent) {
+  if (!event.start) {
+    return "No start time";
+  }
+
+  if (event.isAllDay) {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric"
+    }).format(new Date(`${event.start}T00:00:00`));
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(event.start));
 }

@@ -27,6 +27,21 @@ export type GoogleCalendarConnectionRecord = {
   expires_at: string | null;
 };
 
+export type GoogleCalendarEventRecord = {
+  id: string;
+  summary?: string;
+  description?: string;
+  htmlLink?: string;
+  start?: {
+    date?: string;
+    dateTime?: string;
+  };
+  end?: {
+    date?: string;
+    dateTime?: string;
+  };
+};
+
 export function isGoogleCalendarConfigured() {
   return Boolean(
     process.env.GOOGLE_CLIENT_ID &&
@@ -247,3 +262,32 @@ export function buildCalendarEventPayload(task: Task) {
   };
 }
 
+export async function listCalendarEvents(
+  accessToken: string,
+  calendarId = "primary"
+): Promise<GoogleCalendarEventRecord[]> {
+  const url = new URL(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`
+  );
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("maxResults", "20");
+  url.searchParams.set("timeMin", new Date().toISOString());
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Google Calendar event fetch failed: ${body}`);
+  }
+
+  const payload = (await response.json()) as {
+    items?: GoogleCalendarEventRecord[];
+  };
+
+  return payload.items ?? [];
+}

@@ -33,3 +33,13 @@ export type GoogleCalendarStatus = {
   googleEmail: string | null;
   calendarId: string | null;
 };
+
+export type CalendarEvent = {
+  id: string;
+  summary: string;
+  description: string | null;
+  htmlLink: string | null;
+  start: string | null;
+  end: string | null;
+  isAllDay: boolean;
+};
