@@ -1377,6 +1377,11 @@ label {
     scrollbar-gutter: stable;
   }
 
+  .workspace__content > .board,
+  .workspace__content > .calendar-panel {
+    flex: 0 0 auto;
+  }
+
   .board {
     height: auto;
     grid-auto-rows: auto;
