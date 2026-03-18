@@ -281,6 +281,7 @@ textarea {
 }
 
 .web-search {
+  position: relative;
   display: flex;
   gap: 0.65rem;
   align-items: center;
@@ -290,6 +291,38 @@ textarea {
 .web-search__input {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.web-search__suggestions {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 4.9rem;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.web-search__suggestion {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.web-search__suggestion--active,
+.web-search__suggestion:hover {
+  background: var(--chip-active-bg);
 }
 
 .search-input {

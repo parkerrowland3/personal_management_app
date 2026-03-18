@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
   type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type FormEvent,
   type ReactNode
 } from "react";
@@ -129,6 +130,9 @@ export function TaskShell() {
   const [feedEditUrl, setFeedEditUrl] = useState("");
   const [feedEditDomain, setFeedEditDomain] = useState<Domain>("personal");
   const [webSearch, setWebSearch] = useState("");
+  const [webSearchSuggestions, setWebSearchSuggestions] = useState<string[]>([]);
+  const [selectedWebSuggestionIndex, setSelectedWebSuggestionIndex] = useState(-1);
+  const [isWebSearchFocused, setIsWebSearchFocused] = useState(false);
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
   const [isTaskConversionBusy, setIsTaskConversionBusy] = useState(false);
@@ -337,6 +341,44 @@ export function TaskShell() {
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const query = webSearch.trim();
+
+    if (query.length < 2) {
+      setWebSearchSuggestions([]);
+      setSelectedWebSuggestionIndex(-1);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/web-search/suggestions?q=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          setWebSearchSuggestions([]);
+          setSelectedWebSuggestionIndex(-1);
+          return;
+        }
+
+        const payload = (await response.json()) as { suggestions?: string[] };
+        setWebSearchSuggestions(payload.suggestions ?? []);
+        setSelectedWebSuggestionIndex(-1);
+      } catch {
+        setWebSearchSuggestions([]);
+        setSelectedWebSuggestionIndex(-1);
+      }
+    }, 140);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [webSearch]);
 
   useEffect(() => {
     if (!supabase) {
@@ -1252,6 +1294,74 @@ export function TaskShell() {
 
   const hasCalendarSources = calendarStatus.connected || calendarFeeds.length > 0;
 
+  function submitWebSearch(query: string) {
+    const trimmed = query.trim();
+
+    if (!trimmed) {
+      return;
+    }
+
+    const url = `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    setWebSearch("");
+    setWebSearchSuggestions([]);
+    setSelectedWebSuggestionIndex(-1);
+    setIsWebSearchFocused(false);
+  }
+
+  function handleWebSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const selectedSuggestion =
+      selectedWebSuggestionIndex >= 0
+        ? webSearchSuggestions[selectedWebSuggestionIndex]
+        : null;
+
+    submitWebSearch(selectedSuggestion ?? webSearch);
+  }
+
+  function handleWebSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (!webSearchSuggestions.length) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submitWebSearch(webSearch);
+      }
+
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedWebSuggestionIndex((current) =>
+        current >= webSearchSuggestions.length - 1 ? 0 : current + 1
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedWebSuggestionIndex((current) =>
+        current <= 0 ? webSearchSuggestions.length - 1 : current - 1
+      );
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setWebSearchSuggestions([]);
+      setSelectedWebSuggestionIndex(-1);
+      setIsWebSearchFocused(false);
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const selectedSuggestion =
+        selectedWebSuggestionIndex >= 0
+          ? webSearchSuggestions[selectedWebSuggestionIndex]
+          : webSearch;
+      submitWebSearch(selectedSuggestion);
+    }
+  }
+
   return (
     <main className="shell" data-space={activeDomain}>
       <aside className="sidebar">
@@ -1426,22 +1536,20 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
-            <form
-              action="https://duckduckgo.com/"
-              className="web-search"
-              method="GET"
-              onSubmit={() => {
-                window.setTimeout(() => {
-                  setWebSearch("");
-                }, 0);
-              }}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
+            <form className="web-search" onSubmit={handleWebSearchSubmit}>
               <input
                 className="web-search__input"
-                name="q"
+                aria-autocomplete="list"
+                aria-label="Search the web"
+                autoComplete="off"
                 onChange={(event) => setWebSearch(event.target.value)}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    setIsWebSearchFocused(false);
+                  }, 120);
+                }}
+                onFocus={() => setIsWebSearchFocused(true)}
+                onKeyDown={handleWebSearchKeyDown}
                 placeholder="Search the web with DuckDuckGo"
                 type="search"
                 value={webSearch}
@@ -1449,6 +1557,23 @@ export function TaskShell() {
               <button className="primary-button" disabled={!webSearch.trim()} type="submit">
                 Search
               </button>
+              {isWebSearchFocused && webSearchSuggestions.length ? (
+                <div className="web-search__suggestions" role="listbox">
+                  {webSearchSuggestions.map((suggestion, index) => (
+                    <button
+                      className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
+                      key={suggestion}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        submitWebSearch(suggestion);
+                      }}
+                      type="button"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </form>
             <input
               className="search-input"
