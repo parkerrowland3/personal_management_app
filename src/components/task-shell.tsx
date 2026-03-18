@@ -96,10 +96,6 @@ function sortTasks(tasks: Task[], todayKey = formatDateInputValue(new Date())) {
       return STATUS_OPTIONS.indexOf(left.status) - STATUS_OPTIONS.indexOf(right.status);
     }
 
-    if (left.domain !== right.domain) {
-      return DOMAIN_OPTIONS.indexOf(left.domain) - DOMAIN_OPTIONS.indexOf(right.domain);
-    }
-
     if (left.status === "backlog") {
       const leftDistance = getDueDateDistanceFromToday(left.due_date, todayKey);
       const rightDistance = getDueDateDistanceFromToday(right.due_date, todayKey);
@@ -107,6 +103,10 @@ function sortTasks(tasks: Task[], todayKey = formatDateInputValue(new Date())) {
       if (leftDistance !== rightDistance) {
         return leftDistance - rightDistance;
       }
+    }
+
+    if (left.domain !== right.domain) {
+      return DOMAIN_OPTIONS.indexOf(left.domain) - DOMAIN_OPTIONS.indexOf(right.domain);
     }
 
     if (left.due_date && right.due_date) {
