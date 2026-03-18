@@ -531,7 +531,7 @@ textarea {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 0.2rem;
+  padding: 0.2rem 0.2rem 0.35rem 0;
 }
 
 .task-card {
