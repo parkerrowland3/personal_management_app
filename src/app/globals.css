@@ -276,10 +276,25 @@ textarea {
   gap: 0.75rem;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  width: min(680px, 100%);
+}
+
+.web-search {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  flex: 1 1 380px;
+}
+
+.web-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .search-input {
   min-width: 220px;
+  flex: 0 1 220px;
 }
 
 .filter-chip {
@@ -390,6 +405,7 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 420px;
+  max-height: min(72vh, 760px);
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
@@ -403,6 +419,10 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .task-card {
@@ -453,6 +473,15 @@ textarea {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.task-card__description {
+  display: -webkit-box;
+  overflow: hidden;
+  max-height: 4.6rem;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  mask-image: linear-gradient(180deg, #000 70%, transparent);
 }
 
 .task-card__meta,
@@ -1006,6 +1035,11 @@ label {
   .workspace__header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .workspace__actions,
+  .web-search {
+    width: 100%;
   }
 
   .composer__grid,

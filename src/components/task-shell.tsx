@@ -126,6 +126,7 @@ export function TaskShell() {
   const [feedEditName, setFeedEditName] = useState("");
   const [feedEditUrl, setFeedEditUrl] = useState("");
   const [feedEditDomain, setFeedEditDomain] = useState<Domain>("personal");
+  const [webSearch, setWebSearch] = useState("");
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
@@ -1307,10 +1308,23 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
+            <form action="https://duckduckgo.com/" className="web-search" method="GET">
+              <input
+                className="web-search__input"
+                name="q"
+                onChange={(event) => setWebSearch(event.target.value)}
+                placeholder="Search the web with DuckDuckGo"
+                type="search"
+                value={webSearch}
+              />
+              <button className="primary-button" disabled={!webSearch.trim()} type="submit">
+                Search
+              </button>
+            </form>
             <input
               className="search-input"
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search tasks"
+              placeholder="Filter tasks"
               value={search}
             />
           </div>
@@ -1447,7 +1461,7 @@ export function TaskShell() {
                       </span>
                     </div>
                     <h3>{task.title}</h3>
-                    {task.description ? <p>{task.description}</p> : null}
+                    {task.description ? <p className="task-card__description">{task.description}</p> : null}
                     <div className="task-card__footer">
                       <span>{statusLabels[task.status]}</span>
                       <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
