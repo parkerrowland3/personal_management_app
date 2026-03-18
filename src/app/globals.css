@@ -291,6 +291,15 @@ textarea {
 .web-search__input {
   flex: 1 1 auto;
   min-width: 0;
+  color: var(--text);
+  caret-color: var(--text);
+  -webkit-text-fill-color: var(--text);
+}
+
+.web-search__input::placeholder,
+.search-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .web-search__suggestions {
