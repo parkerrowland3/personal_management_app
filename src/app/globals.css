@@ -173,6 +173,7 @@ textarea {
     radial-gradient(circle at bottom right, var(--space-glow-2), transparent 24%);
   pointer-events: none;
   transition: background 420ms ease, opacity 420ms ease;
+  will-change: background, opacity;
 }
 
 .shell[data-space="personal"] {
@@ -540,6 +541,8 @@ textarea {
     box-shadow 220ms ease,
     background-color 220ms ease,
     opacity 220ms ease;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .task-card:hover,
@@ -820,6 +823,8 @@ label {
     color 220ms ease,
     transform 220ms ease,
     opacity 220ms ease;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .calendar-pill--personal {
@@ -966,6 +971,8 @@ label {
     color 220ms ease,
     transform 220ms ease,
     opacity 220ms ease;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .timeline-event {
@@ -1065,8 +1072,13 @@ label {
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 260ms;
-  animation-timing-function: ease;
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-group(*) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {

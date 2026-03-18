@@ -13,6 +13,7 @@ import {
   type ReactNode
 } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { flushSync } from "react-dom";
 
 import { sampleTasks } from "@/lib/sample-data";
 import {
@@ -1354,7 +1355,9 @@ export function TaskShell() {
 
     if (documentWithTransition.startViewTransition) {
       documentWithTransition.startViewTransition(() => {
-        setActiveDomain(domain);
+        flushSync(() => {
+          setActiveDomain(domain);
+        });
       });
       return;
     }
