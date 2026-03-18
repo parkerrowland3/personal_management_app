@@ -281,19 +281,27 @@ textarea {
 }
 
 .web-search {
-  position: relative;
   display: flex;
   gap: 0.65rem;
-  align-items: center;
+  align-items: flex-start;
   flex: 1 1 380px;
 }
 
+.web-search__field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .web-search__input {
+  position: relative;
+  z-index: 1;
   flex: 1 1 auto;
   min-width: 0;
   color: var(--text);
   caret-color: var(--text);
   -webkit-text-fill-color: var(--text);
+  background: var(--field-focus-bg);
 }
 
 .web-search__input::placeholder,
@@ -306,7 +314,7 @@ textarea {
   position: absolute;
   top: calc(100% + 0.45rem);
   left: 0;
-  right: 4.9rem;
+  right: 0;
   z-index: 12;
   display: flex;
   flex-direction: column;
@@ -332,6 +340,11 @@ textarea {
 .web-search__suggestion--active,
 .web-search__suggestion:hover {
   background: var(--chip-active-bg);
+}
+
+.web-search__suggestion--status {
+  color: var(--muted);
+  cursor: default;
 }
 
 .search-input {

@@ -133,6 +133,7 @@ export function TaskShell() {
   const [webSearchSuggestions, setWebSearchSuggestions] = useState<string[]>([]);
   const [selectedWebSuggestionIndex, setSelectedWebSuggestionIndex] = useState(-1);
   const [isWebSearchFocused, setIsWebSearchFocused] = useState(false);
+  const [isWebSearchLoading, setIsWebSearchLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
   const [isTaskConversionBusy, setIsTaskConversionBusy] = useState(false);
@@ -345,15 +346,17 @@ export function TaskShell() {
   useEffect(() => {
     const query = webSearch.trim();
 
-    if (query.length < 2) {
+    if (query.length < 1) {
       setWebSearchSuggestions([]);
       setSelectedWebSuggestionIndex(-1);
+      setIsWebSearchLoading(false);
       return;
     }
 
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       try {
+        setIsWebSearchLoading(true);
         const response = await fetch(
           `/api/web-search/suggestions?q=${encodeURIComponent(query)}`,
           { signal: controller.signal }
@@ -362,21 +365,25 @@ export function TaskShell() {
         if (!response.ok) {
           setWebSearchSuggestions([]);
           setSelectedWebSuggestionIndex(-1);
+          setIsWebSearchLoading(false);
           return;
         }
 
         const payload = (await response.json()) as { suggestions?: string[] };
         setWebSearchSuggestions(payload.suggestions ?? []);
         setSelectedWebSuggestionIndex(-1);
+        setIsWebSearchLoading(false);
       } catch {
         setWebSearchSuggestions([]);
         setSelectedWebSuggestionIndex(-1);
+        setIsWebSearchLoading(false);
       }
     }, 140);
 
     return () => {
       controller.abort();
       window.clearTimeout(timeout);
+      setIsWebSearchLoading(false);
     };
   }, [webSearch]);
 
@@ -1307,6 +1314,7 @@ export function TaskShell() {
     setWebSearchSuggestions([]);
     setSelectedWebSuggestionIndex(-1);
     setIsWebSearchFocused(false);
+    setIsWebSearchLoading(false);
   }
 
   function handleWebSearchSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1537,43 +1545,52 @@ export function TaskShell() {
 
           <div className="workspace__actions">
             <form className="web-search" onSubmit={handleWebSearchSubmit}>
-              <input
-                className="web-search__input"
-                aria-autocomplete="list"
-                aria-label="Search the web"
-                autoComplete="off"
-                onChange={(event) => setWebSearch(event.target.value)}
-                onBlur={() => {
-                  window.setTimeout(() => {
-                    setIsWebSearchFocused(false);
-                  }, 120);
-                }}
-                onFocus={() => setIsWebSearchFocused(true)}
-                onKeyDown={handleWebSearchKeyDown}
-                placeholder="Search the web with DuckDuckGo"
-                type="search"
-                value={webSearch}
-              />
+              <div className="web-search__field">
+                <input
+                  className="web-search__input"
+                  aria-autocomplete="list"
+                  aria-label="Search the web"
+                  autoComplete="off"
+                  onChange={(event) => setWebSearch(event.target.value)}
+                  onBlur={() => {
+                    window.setTimeout(() => {
+                      setIsWebSearchFocused(false);
+                    }, 120);
+                  }}
+                  onFocus={() => setIsWebSearchFocused(true)}
+                  onKeyDown={handleWebSearchKeyDown}
+                  placeholder="Search the web with DuckDuckGo"
+                  spellCheck={false}
+                  type="text"
+                  value={webSearch}
+                />
+                {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
+                  <div className="web-search__suggestions" role="listbox">
+                    {isWebSearchLoading ? (
+                      <div className="web-search__suggestion web-search__suggestion--status">
+                        Loading suggestions...
+                      </div>
+                    ) : (
+                      webSearchSuggestions.map((suggestion, index) => (
+                        <button
+                          className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
+                          key={suggestion}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            submitWebSearch(suggestion);
+                          }}
+                          type="button"
+                        >
+                          {suggestion}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
               <button className="primary-button" disabled={!webSearch.trim()} type="submit">
                 Search
               </button>
-              {isWebSearchFocused && webSearchSuggestions.length ? (
-                <div className="web-search__suggestions" role="listbox">
-                  {webSearchSuggestions.map((suggestion, index) => (
-                    <button
-                      className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
-                      key={suggestion}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        submitWebSearch(suggestion);
-                      }}
-                      type="button"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </form>
             <input
               className="search-input"
