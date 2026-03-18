@@ -2600,6 +2600,10 @@ function getNormalizedTaskPatch(task: Task, patch: Partial<TaskDraft>, todayKey:
 }
 
 function getTaskLifecyclePatch(task: Task, patch: Partial<Task>) {
+  if (patch.status === undefined) {
+    return patch;
+  }
+
   const nextStatus = patch.status ?? task.status;
 
   if (nextStatus === "done") {
