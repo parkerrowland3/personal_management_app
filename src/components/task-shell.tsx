@@ -1343,6 +1343,25 @@ export function TaskShell() {
     setIsArchiveOverlayOpen(true);
   }
 
+  function changeActiveDomain(domain: Domain | "all") {
+    if (domain === activeDomain) {
+      return;
+    }
+
+    const documentWithTransition = document as Document & {
+      startViewTransition?: (callback: () => void) => void;
+    };
+
+    if (documentWithTransition.startViewTransition) {
+      documentWithTransition.startViewTransition(() => {
+        setActiveDomain(domain);
+      });
+      return;
+    }
+
+    setActiveDomain(domain);
+  }
+
   function openArchivedTask(taskId: string) {
     setSelectedTaskId(taskId);
     setIsArchiveOverlayOpen(false);
@@ -1435,7 +1454,7 @@ export function TaskShell() {
           </div>
           <button
             className={`filter-chip ${activeDomain === "all" ? "filter-chip--active" : ""}`}
-            onClick={() => setActiveDomain("all")}
+            onClick={() => changeActiveDomain("all")}
             type="button"
           >
             All tasks
@@ -1445,7 +1464,7 @@ export function TaskShell() {
             <button
               className={`filter-chip ${activeDomain === domain ? "filter-chip--active" : ""}`}
               key={domain}
-              onClick={() => setActiveDomain(domain)}
+              onClick={() => changeActiveDomain(domain)}
               type="button"
             >
               {domainLabels[domain]}
@@ -1695,6 +1714,7 @@ export function TaskShell() {
                       setSelectedTaskId(task.id);
                       setIsDetailOpen(true);
                     }}
+                    style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
                     type="button"
                   >
                     <div className="task-card__meta">
@@ -1768,6 +1788,7 @@ export function TaskShell() {
                             className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
                             key={event.id}
                             onClick={() => openCalendarEventDetail(event)}
+                            style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
                             type="button"
                           >
                             <span>{event.summary}</span>
@@ -1814,7 +1835,10 @@ export function TaskShell() {
                               className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
                               key={event.id}
                               onClick={() => openCalendarEventDetail(event)}
-                              style={getTimelineEventStyle(topPercent, heightPercent, column, totalColumns)}
+                              style={{
+                                ...getTimelineEventStyle(topPercent, heightPercent, column, totalColumns),
+                                viewTransitionName: `event-${toViewTransitionToken(event.id)}`
+                              }}
                               type="button"
                             >
                               <div className="timeline-event__header">
@@ -1864,6 +1888,7 @@ export function TaskShell() {
                               className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
                               key={event.id}
                               onClick={() => openCalendarEventDetail(event)}
+                              style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
                               type="button"
                             >
                               <div>
@@ -2662,6 +2687,10 @@ function formatRelativeArchiveDate(value: string | null) {
     month: "short",
     day: "numeric"
   }).format(new Date(value));
+}
+
+function toViewTransitionToken(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 function parseEventDate(value: string) {

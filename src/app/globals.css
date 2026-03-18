@@ -112,6 +112,7 @@ body {
   color: var(--text);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   background: transparent;
+  transition: color 320ms ease, background-color 320ms ease;
 }
 
 button,
@@ -159,6 +160,7 @@ textarea {
   gap: 1.25rem;
   min-height: 100vh;
   padding: 1.25rem;
+  transition: color 320ms ease;
 }
 
 .shell::before {
@@ -170,6 +172,7 @@ textarea {
     radial-gradient(circle at top left, var(--space-glow-1), transparent 28%),
     radial-gradient(circle at bottom right, var(--space-glow-2), transparent 24%);
   pointer-events: none;
+  transition: background 420ms ease, opacity 420ms ease;
 }
 
 .shell[data-space="personal"] {
@@ -239,6 +242,11 @@ textarea {
   background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
+  transition:
+    background-color 320ms ease,
+    border-color 320ms ease,
+    box-shadow 320ms ease,
+    color 320ms ease;
 }
 
 .panel--soft {
@@ -367,6 +375,12 @@ textarea {
   border-radius: 14px;
   background: transparent;
   color: var(--text);
+  transition:
+    opacity 240ms ease,
+    transform 240ms ease,
+    background-color 240ms ease,
+    border-color 240ms ease,
+    color 240ms ease;
 }
 
 .filter-chip span,
@@ -517,7 +531,12 @@ textarea {
   background: var(--card-bg);
   text-align: left;
   cursor: grab;
-  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    transform 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    background-color 220ms ease,
+    opacity 220ms ease;
 }
 
 .task-card:hover,
@@ -741,6 +760,10 @@ label {
   border-radius: 20px;
   padding: 1rem;
   background: var(--calendar-surface);
+  transition:
+    background-color 320ms ease,
+    border-color 320ms ease,
+    box-shadow 320ms ease;
 }
 
 .calendar-card__header,
@@ -789,6 +812,11 @@ label {
   border: 0;
   color: var(--text);
   text-align: left;
+  transition:
+    background-color 220ms ease,
+    color 220ms ease,
+    transform 220ms ease,
+    opacity 220ms ease;
 }
 
 .calendar-pill--personal {
@@ -929,6 +957,12 @@ label {
   background: var(--card-bg);
   color: var(--text);
   text-align: left;
+  transition:
+    background-color 220ms ease,
+    border-color 220ms ease,
+    color 220ms ease,
+    transform 220ms ease,
+    opacity 220ms ease;
 }
 
 .timeline-event {
@@ -1024,6 +1058,33 @@ label {
 .event-detail__section p {
   margin: 0;
   line-height: 1.6;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+  animation-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 1ms;
+  }
+
+  .shell,
+  .shell::before,
+  .panel,
+  .filter-chip,
+  .task-card,
+  .calendar-card,
+  .calendar-pill,
+  .timeline-event,
+  .future-event,
+  .feed-item,
+  body {
+    transition-duration: 1ms;
+  }
 }
 
 .future-days {
