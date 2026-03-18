@@ -1312,6 +1312,11 @@ export function TaskShell() {
               action="https://duckduckgo.com/"
               className="web-search"
               method="GET"
+              onSubmit={() => {
+                window.setTimeout(() => {
+                  setWebSearch("");
+                }, 0);
+              }}
               rel="noopener noreferrer"
               target="_blank"
             >
