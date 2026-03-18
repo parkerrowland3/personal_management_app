@@ -109,6 +109,7 @@ export function TaskShell() {
   const [tasks, setTasks] = useState<Task[]>(sampleTasks);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(sampleTasks[0]?.id ?? null);
   const [selectedFeed, setSelectedFeed] = useState<CalendarFeed | null>(null);
+  const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarEvent | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
   const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
@@ -148,7 +149,11 @@ export function TaskShell() {
   const supabase = getSupabaseBrowserClient();
 
   const anyOverlayOpen =
-    isDetailOpen || isEventOverlayOpen || isFeedOverlayOpen || isFeedDetailOverlayOpen;
+    isDetailOpen ||
+    isEventOverlayOpen ||
+    isFeedOverlayOpen ||
+    isFeedDetailOverlayOpen ||
+    selectedCalendarEvent !== null;
 
   const getAccessToken = useCallback(async () => {
     if (!supabase) {
@@ -304,6 +309,7 @@ export function TaskShell() {
         setIsEventOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
+        setSelectedCalendarEvent(null);
       }
     }
 
@@ -402,6 +408,7 @@ export function TaskShell() {
         setIsEventOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
+        setSelectedCalendarEvent(null);
         setCalendarStatus({
           configured: false,
           connected: false,
@@ -888,6 +895,10 @@ export function TaskShell() {
     setIsCalendarBusy(false);
   }
 
+  function openCalendarEventDetail(event: CalendarEvent) {
+    setSelectedCalendarEvent(event);
+  }
+
   async function addCalendarFeed(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -1366,13 +1377,15 @@ export function TaskShell() {
                       <span className="all-day-strip__label">All day</span>
                       <div className="all-day-strip__items">
                         {todayAllDayEvents.map((event) => (
-                          <article
+                          <button
                             className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
                             key={event.id}
+                            onClick={() => openCalendarEventDetail(event)}
+                            type="button"
                           >
                             <span>{event.summary}</span>
                             <small>{event.sourceName ?? event.source}</small>
-                          </article>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -1410,17 +1423,19 @@ export function TaskShell() {
                       {timelineEventLayouts.length ? (
                         <div className="timeline__events">
                           {timelineEventLayouts.map(({ event, topPercent, heightPercent, column, totalColumns }) => (
-                            <article
+                            <button
                               className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
                               key={event.id}
+                              onClick={() => openCalendarEventDetail(event)}
                               style={getTimelineEventStyle(topPercent, heightPercent, column, totalColumns)}
+                              type="button"
                             >
                               <div className="timeline-event__header">
                                 <h4>{event.summary}</h4>
                                 <span>{formatEventTimeRange(event)}</span>
                               </div>
                               <p>{event.sourceName ?? event.source}</p>
-                            </article>
+                            </button>
                           ))}
                         </div>
                       ) : (
@@ -1458,16 +1473,18 @@ export function TaskShell() {
                       {bucket.events.length ? (
                         <div className="future-day__events">
                           {bucket.events.map((event) => (
-                            <article
+                            <button
                               className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
                               key={event.id}
+                              onClick={() => openCalendarEventDetail(event)}
+                              type="button"
                             >
                               <div>
                                 <strong>{event.summary}</strong>
                                 <p>{formatEventTimeRange(event)}</p>
                               </div>
                               <small>{event.sourceName ?? event.source}</small>
-                            </article>
+                            </button>
                           ))}
                         </div>
                       ) : (
@@ -1689,6 +1706,53 @@ export function TaskShell() {
         </Overlay>
       ) : null}
 
+      {selectedCalendarEvent ? (
+        <Overlay
+          onClose={() => setSelectedCalendarEvent(null)}
+          title="Event details"
+          variant="center"
+        >
+          <div className="event-detail">
+            <div className="event-detail__header">
+              <h3>{selectedCalendarEvent.summary}</h3>
+              {selectedCalendarEvent.domain ? (
+                <span className={`domain-pill domain-pill--${selectedCalendarEvent.domain}`}>
+                  {domainLabels[selectedCalendarEvent.domain]}
+                </span>
+              ) : null}
+            </div>
+            <div className="event-detail__meta">
+              <strong>Date</strong>
+              <span>{formatEventDateLabel(selectedCalendarEvent)}</span>
+            </div>
+            <div className="event-detail__meta">
+              <strong>Time</strong>
+              <span>{formatEventTimeRange(selectedCalendarEvent)}</span>
+            </div>
+            <div className="event-detail__meta">
+              <strong>Source</strong>
+              <span>{selectedCalendarEvent.sourceName ?? selectedCalendarEvent.source}</span>
+            </div>
+            {selectedCalendarEvent.description ? (
+              <div className="event-detail__section">
+                <strong>Description</strong>
+                <p>{selectedCalendarEvent.description}</p>
+              </div>
+            ) : null}
+            {selectedCalendarEvent.htmlLink ? (
+              <a
+                className="text-link"
+                href={selectedCalendarEvent.htmlLink}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open in calendar
+              </a>
+            ) : null}
+          </div>
+        </Overlay>
+      ) : null}
+
       {isFeedOverlayOpen ? (
         <Overlay onClose={() => setIsFeedOverlayOpen(false)} title="ICS feeds">
           {!session ? (
@@ -1815,17 +1879,19 @@ export function TaskShell() {
 function Overlay({
   children,
   onClose,
-  title
+  title,
+  variant = "side"
 }: {
   children: ReactNode;
   onClose: () => void;
   title: string;
+  variant?: "side" | "center";
 }) {
   return (
     <div className="detail-overlay" onClick={onClose} role="presentation">
       <aside
         aria-label={title}
-        className="detail-modal panel"
+        className={`detail-modal panel ${variant === "center" ? "detail-modal--center" : ""}`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="panel__header">
@@ -1914,6 +1980,18 @@ function formatEventTimeRange(event: CalendarEvent) {
     hour: "numeric",
     minute: "2-digit"
   }).format(end)}`;
+}
+
+function formatEventDateLabel(event: CalendarEvent) {
+  if (!event.start) {
+    return "Date unavailable";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric"
+  }).format(parseEventDate(event.start));
 }
 
 function parseEventDate(value: string) {

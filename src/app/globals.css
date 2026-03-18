@@ -578,6 +578,11 @@ label {
   background: var(--panel-strong);
 }
 
+.detail-modal--center {
+  width: min(520px, 100%);
+  margin: auto;
+}
+
 .icon-button {
   border: 0;
   border-radius: 999px;
@@ -654,6 +659,9 @@ label {
   padding: 0.65rem 0.8rem;
   border-radius: 14px;
   background: rgba(214, 198, 167, 0.28);
+  border: 0;
+  color: var(--text);
+  text-align: left;
 }
 
 .calendar-pill--personal {
@@ -792,6 +800,8 @@ label {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--card-bg);
+  color: var(--text);
+  text-align: left;
 }
 
 .timeline-event {
@@ -847,6 +857,46 @@ label {
 .feed-item p {
   margin: 0.3rem 0 0;
   line-height: 1.5;
+}
+
+.event-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.event-detail__header,
+.event-detail__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.event-detail__header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.event-detail__meta strong,
+.event-detail__section strong {
+  font-size: 0.85rem;
+}
+
+.event-detail__meta span,
+.event-detail__section p {
+  color: var(--muted);
+}
+
+.event-detail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.event-detail__section p {
+  margin: 0;
+  line-height: 1.6;
 }
 
 .future-days {
