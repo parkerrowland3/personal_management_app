@@ -18,6 +18,7 @@ export type Task = {
   google_calendar_event_id?: string | null;
   google_calendar_event_url?: string | null;
   google_calendar_last_synced_at?: string | null;
+  completed_at?: string | null;
   created_at?: string;
   updated_at?: string;
 };

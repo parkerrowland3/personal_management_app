@@ -14,6 +14,7 @@ Focus Desk is a Notion-inspired personal task manager built with Next.js and Sup
 - Email one-time code authentication with Supabase
 - Tasks organized by `personal`, `work`, and `school`
 - Status lanes for `backlog`, `today`, `in_progress`, and `done`
+- Rolling archive for completed tasks older than 5 days
 - Priority and due date tracking
 - Google Calendar integration for one-click task syncing
 - Notion-like soft panel layout with an editorial dashboard feel
@@ -90,6 +91,7 @@ The task table includes:
 - `status`
 - `priority`
 - `due_date`
+- `completed_at`
 - `user_id`
 
 Row level security is enabled so each authenticated user can only access their own tasks.

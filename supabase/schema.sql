@@ -12,6 +12,7 @@ create table if not exists public.tasks (
   google_calendar_event_id text,
   google_calendar_event_url text,
   google_calendar_last_synced_at timestamptz,
+  completed_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -19,6 +20,7 @@ create table if not exists public.tasks (
 alter table public.tasks add column if not exists google_calendar_event_id text;
 alter table public.tasks add column if not exists google_calendar_event_url text;
 alter table public.tasks add column if not exists google_calendar_last_synced_at timestamptz;
+alter table public.tasks add column if not exists completed_at timestamptz;
 
 create table if not exists public.google_calendar_connections (
   user_id uuid primary key references auth.users(id) on delete cascade,

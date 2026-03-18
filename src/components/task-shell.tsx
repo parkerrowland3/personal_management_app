@@ -71,6 +71,7 @@ const priorityLabels: Record<TaskPriority, string> = {
 const DEFAULT_TIMELINE_START_HOUR = 7;
 const DEFAULT_TIMELINE_END_HOUR = 21;
 const MIN_TIMED_EVENT_DURATION_MINUTES = 30;
+const DONE_RETENTION_DAYS = 5;
 
 type TimelineEventLayout = {
   event: CalendarEvent;
@@ -114,6 +115,7 @@ export function TaskShell() {
   const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarEvent | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
+  const [isArchiveOverlayOpen, setIsArchiveOverlayOpen] = useState(false);
   const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
   const [isFeedDetailOverlayOpen, setIsFeedDetailOverlayOpen] = useState(false);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_TASK);
@@ -129,6 +131,7 @@ export function TaskShell() {
   const [feedEditName, setFeedEditName] = useState("");
   const [feedEditUrl, setFeedEditUrl] = useState("");
   const [feedEditDomain, setFeedEditDomain] = useState<Domain>("personal");
+  const [archivedDomainFilter, setArchivedDomainFilter] = useState<Domain | "all">("all");
   const [webSearch, setWebSearch] = useState("");
   const [webSearchSuggestions, setWebSearchSuggestions] = useState<string[]>([]);
   const [selectedWebSuggestionIndex, setSelectedWebSuggestionIndex] = useState(-1);
@@ -164,6 +167,7 @@ export function TaskShell() {
   const anyOverlayOpen =
     isDetailOpen ||
     isEventOverlayOpen ||
+    isArchiveOverlayOpen ||
     isFeedOverlayOpen ||
     isFeedDetailOverlayOpen ||
     selectedCalendarEvent !== null;
@@ -320,6 +324,7 @@ export function TaskShell() {
       if (event.key === "Escape") {
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
+        setIsArchiveOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
         setSelectedCalendarEvent(null);
@@ -465,6 +470,7 @@ export function TaskShell() {
         setSelectedFeed(null);
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
+        setIsArchiveOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
         setSelectedCalendarEvent(null);
@@ -492,6 +498,16 @@ export function TaskShell() {
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks]
+  );
+
+  const archivedTasks = useMemo(
+    () => tasks.filter((task) => isArchivedTask(task, now)),
+    [now, tasks]
+  );
+
+  const activeTasks = useMemo(
+    () => tasks.filter((task) => !isArchivedTask(task, now)),
+    [now, tasks]
   );
 
   useEffect(() => {
@@ -529,7 +545,7 @@ export function TaskShell() {
   const visibleTasks = useMemo(() => {
     const normalized = deferredSearch.trim().toLowerCase();
 
-    return tasks.filter((task) => {
+    return activeTasks.filter((task) => {
       const matchesDomain = activeDomain === "all" || task.domain === activeDomain;
       const matchesSearch =
         !normalized ||
@@ -538,7 +554,7 @@ export function TaskShell() {
 
       return matchesDomain && matchesSearch;
     });
-  }, [activeDomain, deferredSearch, tasks]);
+  }, [activeDomain, activeTasks, deferredSearch]);
 
   const groupedTasks = useMemo(() => {
     return STATUS_OPTIONS.map((status) => ({
@@ -550,9 +566,15 @@ export function TaskShell() {
   const domainCounts = useMemo(() => {
     return DOMAIN_OPTIONS.map((domain) => ({
       domain,
-      count: tasks.filter((task) => task.domain === domain).length
+      count: activeTasks.filter((task) => task.domain === domain).length
     }));
-  }, [tasks]);
+  }, [activeTasks]);
+
+  const filteredArchivedTasks = useMemo(() => {
+    return archivedTasks.filter(
+      (task) => archivedDomainFilter === "all" || task.domain === archivedDomainFilter
+    );
+  }, [archivedDomainFilter, archivedTasks]);
 
   const visibleCalendarEvents = useMemo(() => {
     return calendarEvents.filter(
@@ -697,7 +719,8 @@ export function TaskShell() {
         id: crypto.randomUUID(),
         title: draft.title.trim(),
         description: draft.description?.trim() || null,
-        status: nextStatus
+        status: nextStatus,
+        completed_at: nextStatus === "done" ? new Date().toISOString() : null
       };
       const nextTasks = sortTasks([nextTask, ...tasks]);
       setTasks(nextTasks);
@@ -717,7 +740,11 @@ export function TaskShell() {
         user_id: session.user.id,
         title: draft.title.trim(),
         description: draft.description?.trim() || null,
-        status: getNormalizedTaskStatus(draft.status, draft.due_date, todayKey)
+        status: getNormalizedTaskStatus(draft.status, draft.due_date, todayKey),
+        completed_at:
+          getNormalizedTaskStatus(draft.status, draft.due_date, todayKey) === "done"
+            ? new Date().toISOString()
+            : null
       })
       .select()
       .single();
@@ -742,7 +769,10 @@ export function TaskShell() {
       return;
     }
 
-    const normalizedPatch = getNormalizedTaskPatch(selectedTask, patch, todayKey);
+    const normalizedPatch = getTaskLifecyclePatch(
+      selectedTask,
+      getNormalizedTaskPatch(selectedTask, patch, todayKey)
+    );
 
     const optimisticTask: Task = {
       ...selectedTask,
@@ -788,9 +818,10 @@ export function TaskShell() {
       return;
     }
 
+    const lifecyclePatch = getTaskLifecyclePatch(task, { status: nextStatus });
     const optimisticTask = {
       ...task,
-      status: nextStatus
+      ...lifecyclePatch
     };
 
     setTasks((current) =>
@@ -806,7 +837,7 @@ export function TaskShell() {
       return;
     }
 
-    const { error } = await supabase.from("tasks").update({ status: nextStatus }).eq("id", taskId);
+    const { error } = await supabase.from("tasks").update(lifecyclePatch).eq("id", taskId);
 
     if (error) {
       setNotice(error.message);
@@ -1301,6 +1332,17 @@ export function TaskShell() {
 
   const hasCalendarSources = calendarStatus.connected || calendarFeeds.length > 0;
 
+  function openArchiveOverlay() {
+    setArchivedDomainFilter(activeDomain === "all" ? "all" : activeDomain);
+    setIsArchiveOverlayOpen(true);
+  }
+
+  function openArchivedTask(taskId: string) {
+    setSelectedTaskId(taskId);
+    setIsArchiveOverlayOpen(false);
+    setIsDetailOpen(true);
+  }
+
   function submitWebSearch(query: string) {
     const trimmed = query.trim();
 
@@ -1391,7 +1433,7 @@ export function TaskShell() {
             type="button"
           >
             All tasks
-            <span>{tasks.length}</span>
+            <span>{activeTasks.length}</span>
           </button>
           {domainCounts.map(({ domain, count }) => (
             <button
@@ -1520,6 +1562,19 @@ export function TaskShell() {
               </button>
             </div>
           )}
+        </section>
+
+        <section className="panel">
+          <div className="panel__header">
+            <h2>Archive</h2>
+            <span className="count-pill">{archivedTasks.length}</span>
+          </div>
+          <p className="muted">
+            Done tasks older than {DONE_RETENTION_DAYS} days move here automatically.
+          </p>
+          <button className="secondary-button" onClick={openArchiveOverlay} type="button">
+            View archived tasks
+          </button>
         </section>
 
         <section className="panel">
@@ -2174,6 +2229,65 @@ export function TaskShell() {
         </Overlay>
       ) : null}
 
+      {isArchiveOverlayOpen ? (
+        <Overlay onClose={() => setIsArchiveOverlayOpen(false)} title="Archived tasks" variant="center">
+          <div className="detail__content">
+            <div className="overlay-filter-row">
+              <button
+                className={`filter-chip ${archivedDomainFilter === "all" ? "filter-chip--active" : ""}`}
+                onClick={() => setArchivedDomainFilter("all")}
+                type="button"
+              >
+                All archived
+                <span>{archivedTasks.length}</span>
+              </button>
+              {DOMAIN_OPTIONS.map((domain) => (
+                <button
+                  className={`filter-chip ${archivedDomainFilter === domain ? "filter-chip--active" : ""}`}
+                  key={domain}
+                  onClick={() => setArchivedDomainFilter(domain)}
+                  type="button"
+                >
+                  {domainLabels[domain]}
+                  <span>{archivedTasks.filter((task) => task.domain === domain).length}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="overlay-task-list">
+              {filteredArchivedTasks.map((task) => (
+                <button
+                  className={`task-card ${archivedDomainFilter === "all" ? `task-card--${task.domain}` : ""}`}
+                  key={task.id}
+                  onClick={() => openArchivedTask(task.id)}
+                  type="button"
+                >
+                  <div className="task-card__meta">
+                    <span className={`domain-pill domain-pill--${task.domain}`}>
+                      {domainLabels[task.domain]}
+                    </span>
+                    <span className={`priority-pill priority-pill--${task.priority}`}>
+                      {priorityLabels[task.priority]}
+                    </span>
+                  </div>
+                  <h3>{task.title}</h3>
+                  {task.description ? <p className="task-card__description">{task.description}</p> : null}
+                  <div className="task-card__footer">
+                    <span>Archived after {formatRelativeArchiveDate(task.completed_at ?? task.updated_at ?? task.created_at ?? null)}</span>
+                    <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
+                  </div>
+                </button>
+              ))}
+              {!filteredArchivedTasks.length ? (
+                <div className="empty-state">
+                  <p>No archived tasks for this space.</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </Overlay>
+      ) : null}
+
       {isFeedOverlayOpen ? (
         <Overlay onClose={() => setIsFeedOverlayOpen(false)} title="ICS feeds">
           {!session ? (
@@ -2485,8 +2599,54 @@ function getNormalizedTaskPatch(task: Task, patch: Partial<TaskDraft>, todayKey:
   };
 }
 
+function getTaskLifecyclePatch(task: Task, patch: Partial<Task>) {
+  const nextStatus = patch.status ?? task.status;
+
+  if (nextStatus === "done") {
+    return {
+      ...patch,
+      completed_at: task.status === "done" ? task.completed_at ?? new Date().toISOString() : new Date().toISOString()
+    };
+  }
+
+  return {
+    ...patch,
+    completed_at: nextStatus === task.status ? task.completed_at ?? null : null
+  };
+}
+
 function shouldAutoMoveTaskToToday(task: Task, todayKey: string) {
   return task.due_date === todayKey && task.status === "backlog";
+}
+
+function isArchivedTask(task: Task, now: Date) {
+  if (task.status !== "done") {
+    return false;
+  }
+
+  const completedAt = getTaskCompletedAt(task);
+
+  if (!completedAt) {
+    return false;
+  }
+
+  return now.getTime() - completedAt.getTime() > DONE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function getTaskCompletedAt(task: Task) {
+  const value = task.completed_at ?? task.updated_at ?? task.created_at ?? null;
+  return value ? new Date(value) : null;
+}
+
+function formatRelativeArchiveDate(value: string | null) {
+  if (!value) {
+    return "an unknown date";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric"
+  }).format(new Date(value));
 }
 
 function parseEventDate(value: string) {
