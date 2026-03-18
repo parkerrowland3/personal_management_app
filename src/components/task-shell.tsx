@@ -74,6 +74,8 @@ const DEFAULT_TIMELINE_END_HOUR = 21;
 const MIN_TIMED_EVENT_DURATION_MINUTES = 30;
 const DONE_RETENTION_DAYS = 5;
 
+type MobileSection = "tasks" | "calendar" | "more";
+
 type TimelineEventLayout = {
   event: CalendarEvent;
   topPercent: number;
@@ -81,6 +83,12 @@ type TimelineEventLayout = {
   column: number;
   totalColumns: number;
 };
+
+const MOBILE_SECTIONS: Array<{ id: MobileSection; label: string }> = [
+  { id: "tasks", label: "Tasks" },
+  { id: "calendar", label: "Calendar" },
+  { id: "more", label: "More" }
+];
 
 function sortTasks(tasks: Task[]) {
   return [...tasks].sort((left, right) => {
@@ -105,6 +113,23 @@ function sortTasks(tasks: Task[]) {
     }
 
     return left.title.localeCompare(right.title);
+  });
+}
+
+function sortCalendarEvents(events: CalendarEvent[]) {
+  return [...events].sort((left, right) => {
+    const leftStart = left.start ? new Date(left.start).getTime() : Number.MAX_SAFE_INTEGER;
+    const rightStart = right.start ? new Date(right.start).getTime() : Number.MAX_SAFE_INTEGER;
+
+    if (leftStart !== rightStart) {
+      return leftStart - rightStart;
+    }
+
+    if (left.isAllDay !== right.isAllDay) {
+      return left.isAllDay ? -1 : 1;
+    }
+
+    return left.summary.localeCompare(right.summary);
   });
 }
 
@@ -155,6 +180,8 @@ export function TaskShell() {
   const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
+  const [mobileSection, setMobileSection] = useState<MobileSection>("tasks");
+  const [mobileTaskStatus, setMobileTaskStatus] = useState<TaskStatus>("today");
   const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState<string | null>(
     isSupabaseConfigured()
@@ -174,6 +201,23 @@ export function TaskShell() {
     isFeedOverlayOpen ||
     isFeedDetailOverlayOpen ||
     selectedCalendarEvent !== null;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    if (anyOverlayOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = previousOverflow;
+      };
+    }
+
+    document.body.style.overflow = previousOverflow;
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [anyOverlayOpen]);
 
   const getAccessToken = useCallback(async () => {
     if (!supabase) {
@@ -582,8 +626,8 @@ export function TaskShell() {
   }, [archivedDomainFilter, archivedTasks]);
 
   const visibleCalendarEvents = useMemo(() => {
-    return calendarEvents.filter(
-      (event) => activeDomain === "all" || event.domain === activeDomain
+    return sortCalendarEvents(
+      calendarEvents.filter((event) => activeDomain === "all" || event.domain === activeDomain)
     );
   }, [activeDomain, calendarEvents]);
 
@@ -611,6 +655,11 @@ export function TaskShell() {
   const todayTimedEvents = useMemo(
     () => todayEvents.filter((event) => !event.isAllDay && event.start),
     [todayEvents]
+  );
+
+  const mobileTaskGroup = useMemo(
+    () => groupedTasks.find((group) => group.status === mobileTaskStatus) ?? groupedTasks[0],
+    [groupedTasks, mobileTaskStatus]
   );
 
   const timelineBounds = useMemo(() => {
@@ -1440,9 +1489,512 @@ export function TaskShell() {
     }
   }
 
+  function renderSpaceFilters() {
+    return (
+      <>
+        <button
+          aria-pressed={activeDomain === "all"}
+          className={`filter-chip ${activeDomain === "all" ? "filter-chip--active" : ""}`}
+          onClick={() => changeActiveDomain("all")}
+          type="button"
+        >
+          All tasks
+          <span>{activeTasks.length}</span>
+        </button>
+        {domainCounts.map(({ domain, count }) => (
+          <button
+            aria-pressed={activeDomain === domain}
+            className={`filter-chip ${activeDomain === domain ? "filter-chip--active" : ""}`}
+            key={domain}
+            onClick={() => changeActiveDomain(domain)}
+            type="button"
+          >
+            {domainLabels[domain]}
+            <span>{count}</span>
+          </button>
+        ))}
+      </>
+    );
+  }
+
+  function renderWebSearchForm(className?: string) {
+    return (
+      <form className={`web-search ${className ?? ""}`.trim()} onSubmit={handleWebSearchSubmit}>
+        <div className="web-search__field">
+          <input
+            className="web-search__input"
+            aria-autocomplete="list"
+            aria-label="Search the web"
+            autoComplete="off"
+            onChange={(event) => setWebSearch(event.target.value)}
+            onBlur={() => {
+              window.setTimeout(() => {
+                setIsWebSearchFocused(false);
+              }, 120);
+            }}
+            onFocus={() => setIsWebSearchFocused(true)}
+            onKeyDown={handleWebSearchKeyDown}
+            placeholder="Search the web with DuckDuckGo"
+            spellCheck={false}
+            type="text"
+            value={webSearch}
+          />
+          {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
+            <div className="web-search__suggestions" role="listbox">
+              {isWebSearchLoading ? (
+                <div className="web-search__suggestion web-search__suggestion--status">
+                  Loading suggestions...
+                </div>
+              ) : (
+                webSearchSuggestions.map((suggestion, index) => (
+                  <button
+                    className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
+                    key={suggestion}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      submitWebSearch(suggestion);
+                    }}
+                    type="button"
+                  >
+                    {suggestion}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+        <button className="primary-button" disabled={!webSearch.trim()} type="submit">
+          Search
+        </button>
+      </form>
+    );
+  }
+
+  function renderAccountPanel() {
+    return (
+      <section className="panel">
+        <div className="panel__header">
+          <h2>{supabase ? "Account" : "Demo mode"}</h2>
+        </div>
+        {supabase ? (
+          session ? (
+            <div className="auth-state">
+              <p>{session.user.email}</p>
+              <button className="secondary-button" onClick={signOut} type="button">
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <div className="auth-form">
+              <form className="auth-form" onSubmit={sendEmailCode}>
+                <label>
+                  Email
+                  <input
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      setIsAwaitingEmailCode(false);
+                      setEmailCode("");
+                    }}
+                    placeholder="you@example.com"
+                    type="email"
+                    value={email}
+                  />
+                </label>
+                <button className="primary-button" disabled={isSaving || !email} type="submit">
+                  {isSaving && !isAwaitingEmailCode ? "Sending..." : "Send code"}
+                </button>
+              </form>
+              {isAwaitingEmailCode ? (
+                <form className="auth-form auth-form--nested" onSubmit={verifyEmailCode}>
+                  <label>
+                    Email code
+                    <input
+                      inputMode="numeric"
+                      onChange={(event) => setEmailCode(event.target.value)}
+                      placeholder="123456"
+                      value={emailCode}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    disabled={isSaving || !emailCode.trim()}
+                    type="submit"
+                  >
+                    {isSaving ? "Verifying..." : "Verify code"}
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          )
+        ) : (
+          <p className="muted">
+            Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to go live.
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  function renderGoogleCalendarPanel() {
+    return (
+      <section className="panel panel--soft">
+        <div className="panel__header">
+          <h2>Google Calendar</h2>
+        </div>
+        {!session ? (
+          <p className="muted">Sign in to connect your Google Calendar.</p>
+        ) : !calendarStatus.configured ? (
+          <p className="muted">
+            Add Google OAuth and server-side Supabase env vars to enable calendar syncing.
+          </p>
+        ) : calendarStatus.connected ? (
+          <div className="stack-actions">
+            <p className="muted">
+              Connected to {calendarStatus.googleEmail ?? "your Google account"}.
+            </p>
+            <label>
+              Default space
+              <select
+                disabled={isCalendarBusy}
+                onChange={(event) => void updateGoogleDefaultDomain(event.target.value as Domain)}
+                value={calendarStatus.defaultDomain ?? "personal"}
+              >
+                {DOMAIN_OPTIONS.map((domain) => (
+                  <option key={domain} value={domain}>
+                    {domainLabels[domain]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="secondary-button"
+              disabled={isCalendarBusy}
+              onClick={() => void disconnectGoogleCalendar()}
+              type="button"
+            >
+              {isCalendarBusy ? "Working..." : "Disconnect"}
+            </button>
+          </div>
+        ) : (
+          <div className="stack-actions">
+            <p className="muted">Authorize Google Calendar to sync due-dated tasks.</p>
+            <button
+              className="secondary-button"
+              disabled={isCalendarBusy}
+              onClick={() => void connectGoogleCalendar()}
+              type="button"
+            >
+              {isCalendarBusy ? "Working..." : "Connect Google Calendar"}
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderArchivePanel() {
+    return (
+      <section className="panel">
+        <div className="panel__header">
+          <h2>Archive</h2>
+          <span className="count-pill">{archivedTasks.length}</span>
+        </div>
+        <p className="muted">
+          Done tasks older than {DONE_RETENTION_DAYS} days move here automatically.
+        </p>
+        <button className="secondary-button" onClick={openArchiveOverlay} type="button">
+          View archived tasks
+        </button>
+      </section>
+    );
+  }
+
+  function renderFeedPanel() {
+    return (
+      <section className="panel">
+        <div className="panel__header">
+          <h2>ICS Feeds</h2>
+          <span className="count-pill">{calendarFeeds.length}</span>
+        </div>
+        <p className="muted">
+          Bring in school, work, or household calendars from public `.ics` feeds.
+        </p>
+        <button className="secondary-button" onClick={() => setIsFeedOverlayOpen(true)} type="button">
+          Manage feeds
+        </button>
+      </section>
+    );
+  }
+
   return (
     <main className="shell" data-space={activeDomain}>
-      <aside className="sidebar">
+      <section className="mobile-shell">
+        <header className="panel panel--soft mobile-hero">
+          <div className="mobile-hero__header">
+            <div>
+              <p className="eyebrow">Personal OS</p>
+              <h1>Focus Desk</h1>
+            </div>
+            <p className="mobile-hero__summary">
+              {activeTasks.length} active tasks, {visibleCalendarEvents.length} calendar events
+            </p>
+          </div>
+          <div className="mobile-space-strip" aria-label="Spaces" role="group">
+            {renderSpaceFilters()}
+          </div>
+        </header>
+
+        {notice ? <div className="notice">{notice}</div> : null}
+
+        <section className="mobile-pane" hidden={mobileSection !== "tasks"}>
+          <div className="mobile-section-header">
+            <div>
+              <p className="eyebrow">Tasks</p>
+              <h2>Plan the day</h2>
+            </div>
+            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+              Add task
+            </button>
+          </div>
+
+          <section className="panel mobile-tools">
+            <label>
+              Filter tasks
+              <input
+                className="search-input"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search title or notes"
+                value={search}
+              />
+            </label>
+          </section>
+
+          <div className="mobile-status-strip" aria-label="Task statuses" role="group">
+            {groupedTasks.map(({ status, tasks: statusTasks }) => (
+              <button
+                aria-pressed={mobileTaskStatus === status}
+                className={`filter-chip ${mobileTaskStatus === status ? "filter-chip--active" : ""}`}
+                key={status}
+                onClick={() => setMobileTaskStatus(status)}
+                type="button"
+              >
+                {statusLabels[status]}
+                <span>{statusTasks.length}</span>
+              </button>
+            ))}
+          </div>
+
+          <section className="panel mobile-board-column">
+            <div className="panel__header">
+              <h2>{mobileTaskGroup?.status ? statusLabels[mobileTaskGroup.status] : "Tasks"}</h2>
+              <span className="count-pill">{mobileTaskGroup?.tasks.length ?? 0}</span>
+            </div>
+            <div className="task-list task-list--mobile">
+              {mobileTaskGroup?.tasks.length ? (
+                mobileTaskGroup.tasks.map((task) => (
+                  <button
+                    className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
+                    key={task.id}
+                    onClick={() => {
+                      setSelectedTaskId(task.id);
+                      setIsDetailOpen(true);
+                    }}
+                    style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
+                    type="button"
+                  >
+                    <div className="task-card__meta">
+                      <span className={`domain-pill domain-pill--${task.domain}`}>
+                        {domainLabels[task.domain]}
+                      </span>
+                      <span className={`priority-pill priority-pill--${task.priority}`}>
+                        {priorityLabels[task.priority]}
+                      </span>
+                    </div>
+                    <h3>{task.title}</h3>
+                    {task.description ? <p className="task-card__description">{task.description}</p> : null}
+                    <div className="task-card__footer">
+                      <span>{statusLabels[task.status]}</span>
+                      <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <p>No tasks in this lane.</p>
+                </div>
+              )}
+            </div>
+          </section>
+        </section>
+
+        <section className="mobile-pane" hidden={mobileSection !== "calendar"}>
+          <div className="mobile-section-header">
+            <div>
+              <p className="eyebrow">Calendar</p>
+              <h2>Today and next</h2>
+            </div>
+            <button
+              className="secondary-button"
+              disabled={!calendarStatus.connected}
+              onClick={() => setIsEventOverlayOpen(true)}
+              type="button"
+            >
+              New event
+            </button>
+          </div>
+
+          <section className="panel mobile-calendar-card">
+            <div className="panel__header">
+              <h2>Today</h2>
+              <span className="count-pill">{todayEvents.length}</span>
+            </div>
+
+            {!session ? (
+              <div className="empty-state">
+                <p>Sign in to load your calendar.</p>
+              </div>
+            ) : !hasCalendarSources ? (
+              <div className="empty-state">
+                <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+              </div>
+            ) : (
+              <div className="mobile-agenda">
+                {todayAllDayEvents.length ? (
+                  <div className="mobile-agenda__block">
+                    <p className="eyebrow">All day</p>
+                    <div className="mobile-agenda__list">
+                      {todayAllDayEvents.map((event) => (
+                        <button
+                          className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
+                          key={event.id}
+                          onClick={() => openCalendarEventDetail(event)}
+                          style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
+                          type="button"
+                        >
+                          <span>{event.summary}</span>
+                          <small>{event.sourceName ?? event.source}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mobile-agenda__block">
+                  <p className="eyebrow">Timed events</p>
+                  {todayTimedEvents.length ? (
+                    <div className="future-day__events">
+                      {todayTimedEvents.map((event) => (
+                        <button
+                          className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
+                          key={event.id}
+                          onClick={() => openCalendarEventDetail(event)}
+                          style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
+                          type="button"
+                        >
+                          <div>
+                            <strong>{event.summary}</strong>
+                            <p>{formatEventTimeRange(event)}</p>
+                          </div>
+                          <small>{event.sourceName ?? event.source}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">No timed events scheduled today.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="panel mobile-calendar-card">
+            <div className="panel__header">
+              <h2>Next 5 Days</h2>
+              <span className="count-pill">
+                {nextFiveDayBuckets.reduce((total, bucket) => total + bucket.events.length, 0)}
+              </span>
+            </div>
+
+            {!session ? (
+              <div className="empty-state">
+                <p>Sign in to load your calendar.</p>
+              </div>
+            ) : !hasCalendarSources ? (
+              <div className="empty-state">
+                <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+              </div>
+            ) : (
+              <div className="future-days">
+                {nextFiveDayBuckets.map((bucket) => (
+                  <section className="future-day" key={bucket.date.toISOString()}>
+                    <div className="future-day__header">
+                      <h4>{formatDayHeading(bucket.date)}</h4>
+                    </div>
+                    {bucket.events.length ? (
+                      <div className="future-day__events">
+                        {bucket.events.map((event) => (
+                          <button
+                            className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
+                            key={event.id}
+                            onClick={() => openCalendarEventDetail(event)}
+                            style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
+                            type="button"
+                          >
+                            <div>
+                              <strong>{event.summary}</strong>
+                              <p>{formatEventTimeRange(event)}</p>
+                            </div>
+                            <small>{event.sourceName ?? event.source}</small>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted">No events scheduled.</p>
+                    )}
+                  </section>
+                ))}
+              </div>
+            )}
+          </section>
+        </section>
+
+        <section className="mobile-pane mobile-pane--more" hidden={mobileSection !== "more"}>
+          <div className="mobile-section-header">
+            <div>
+              <p className="eyebrow">More</p>
+              <h2>Account and tools</h2>
+            </div>
+          </div>
+
+          <section className="panel">
+            <div className="panel__header">
+              <h2>Web search</h2>
+            </div>
+            {renderWebSearchForm("web-search--mobile")}
+          </section>
+
+          {renderAccountPanel()}
+          {renderGoogleCalendarPanel()}
+          {renderArchivePanel()}
+          {renderFeedPanel()}
+        </section>
+      </section>
+
+      <nav aria-label="Primary" className="mobile-bottom-nav">
+        {MOBILE_SECTIONS.map((section) => (
+          <button
+            aria-pressed={mobileSection === section.id}
+            className={`mobile-bottom-nav__button ${mobileSection === section.id ? "mobile-bottom-nav__button--active" : ""}`}
+            key={section.id}
+            onClick={() => setMobileSection(section.id)}
+            type="button"
+          >
+            {section.label}
+          </button>
+        ))}
+      </nav>
+
+      <aside className="sidebar desktop-shell">
         <div className="sidebar__top">
           <p className="eyebrow">Personal OS</p>
           <h1>Focus Desk</h1>
@@ -1455,171 +2007,16 @@ export function TaskShell() {
           <div className="panel__header">
             <h2>Spaces</h2>
           </div>
-          <button
-            className={`filter-chip ${activeDomain === "all" ? "filter-chip--active" : ""}`}
-            onClick={() => changeActiveDomain("all")}
-            type="button"
-          >
-            All tasks
-            <span>{activeTasks.length}</span>
-          </button>
-          {domainCounts.map(({ domain, count }) => (
-            <button
-              className={`filter-chip ${activeDomain === domain ? "filter-chip--active" : ""}`}
-              key={domain}
-              onClick={() => changeActiveDomain(domain)}
-              type="button"
-            >
-              {domainLabels[domain]}
-              <span>{count}</span>
-            </button>
-          ))}
+          {renderSpaceFilters()}
         </section>
 
-        <section className="panel">
-          <div className="panel__header">
-            <h2>{supabase ? "Account" : "Demo mode"}</h2>
-          </div>
-          {supabase ? (
-            session ? (
-              <div className="auth-state">
-                <p>{session.user.email}</p>
-                <button className="secondary-button" onClick={signOut} type="button">
-                  Sign out
-                </button>
-              </div>
-            ) : (
-              <div className="auth-form">
-                <form className="auth-form" onSubmit={sendEmailCode}>
-                  <label>
-                    Email
-                    <input
-                      onChange={(event) => {
-                        setEmail(event.target.value);
-                        setIsAwaitingEmailCode(false);
-                        setEmailCode("");
-                      }}
-                      placeholder="you@example.com"
-                      type="email"
-                      value={email}
-                    />
-                  </label>
-                  <button className="primary-button" disabled={isSaving || !email} type="submit">
-                    {isSaving && !isAwaitingEmailCode ? "Sending..." : "Send code"}
-                  </button>
-                </form>
-                {isAwaitingEmailCode ? (
-                  <form className="auth-form auth-form--nested" onSubmit={verifyEmailCode}>
-                    <label>
-                      Email code
-                      <input
-                        inputMode="numeric"
-                        onChange={(event) => setEmailCode(event.target.value)}
-                        placeholder="123456"
-                        value={emailCode}
-                      />
-                    </label>
-                    <button
-                      className="secondary-button"
-                      disabled={isSaving || !emailCode.trim()}
-                      type="submit"
-                    >
-                      {isSaving ? "Verifying..." : "Verify code"}
-                    </button>
-                  </form>
-                ) : null}
-              </div>
-            )
-          ) : (
-            <p className="muted">
-              Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to go live.
-            </p>
-          )}
-        </section>
-
-        <section className="panel panel--soft">
-          <div className="panel__header">
-            <h2>Google Calendar</h2>
-          </div>
-          {!session ? (
-            <p className="muted">Sign in to connect your Google Calendar.</p>
-          ) : !calendarStatus.configured ? (
-            <p className="muted">
-              Add Google OAuth and server-side Supabase env vars to enable calendar syncing.
-            </p>
-          ) : calendarStatus.connected ? (
-            <div className="stack-actions">
-              <p className="muted">
-                Connected to {calendarStatus.googleEmail ?? "your Google account"}.
-              </p>
-              <label>
-                Default space
-                <select
-                  disabled={isCalendarBusy}
-                  onChange={(event) =>
-                    void updateGoogleDefaultDomain(event.target.value as Domain)
-                  }
-                  value={calendarStatus.defaultDomain ?? "personal"}
-                >
-                  {DOMAIN_OPTIONS.map((domain) => (
-                    <option key={domain} value={domain}>
-                      {domainLabels[domain]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="secondary-button"
-                disabled={isCalendarBusy}
-                onClick={() => void disconnectGoogleCalendar()}
-                type="button"
-              >
-                {isCalendarBusy ? "Working..." : "Disconnect"}
-              </button>
-            </div>
-          ) : (
-            <div className="stack-actions">
-              <p className="muted">Authorize Google Calendar to sync due-dated tasks.</p>
-              <button
-                className="secondary-button"
-                disabled={isCalendarBusy}
-                onClick={() => void connectGoogleCalendar()}
-                type="button"
-              >
-                {isCalendarBusy ? "Working..." : "Connect Google Calendar"}
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="panel__header">
-            <h2>Archive</h2>
-            <span className="count-pill">{archivedTasks.length}</span>
-          </div>
-          <p className="muted">
-            Done tasks older than {DONE_RETENTION_DAYS} days move here automatically.
-          </p>
-          <button className="secondary-button" onClick={openArchiveOverlay} type="button">
-            View archived tasks
-          </button>
-        </section>
-
-        <section className="panel">
-          <div className="panel__header">
-            <h2>ICS Feeds</h2>
-            <span className="count-pill">{calendarFeeds.length}</span>
-          </div>
-          <p className="muted">
-            Bring in school, work, or household calendars from public `.ics` feeds.
-          </p>
-          <button className="secondary-button" onClick={() => setIsFeedOverlayOpen(true)} type="button">
-            Manage feeds
-          </button>
-        </section>
+        {renderAccountPanel()}
+        {renderGoogleCalendarPanel()}
+        {renderArchivePanel()}
+        {renderFeedPanel()}
       </aside>
 
-      <section className="workspace">
+      <section className="workspace desktop-shell">
         <header className="workspace__header">
           <div>
             <p className="eyebrow">Dashboard</p>
@@ -1628,54 +2025,7 @@ export function TaskShell() {
         </header>
 
         <div className="workspace__toolbar">
-          <form className="web-search" onSubmit={handleWebSearchSubmit}>
-            <div className="web-search__field">
-              <input
-                className="web-search__input"
-                aria-autocomplete="list"
-                aria-label="Search the web"
-                autoComplete="off"
-                onChange={(event) => setWebSearch(event.target.value)}
-                onBlur={() => {
-                  window.setTimeout(() => {
-                    setIsWebSearchFocused(false);
-                  }, 120);
-                }}
-                onFocus={() => setIsWebSearchFocused(true)}
-                onKeyDown={handleWebSearchKeyDown}
-                placeholder="Search the web with DuckDuckGo"
-                spellCheck={false}
-                type="text"
-                value={webSearch}
-              />
-              {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
-                <div className="web-search__suggestions" role="listbox">
-                  {isWebSearchLoading ? (
-                    <div className="web-search__suggestion web-search__suggestion--status">
-                      Loading suggestions...
-                    </div>
-                  ) : (
-                    webSearchSuggestions.map((suggestion, index) => (
-                      <button
-                        className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
-                        key={suggestion}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          submitWebSearch(suggestion);
-                        }}
-                        type="button"
-                      >
-                        {suggestion}
-                      </button>
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <button className="primary-button" disabled={!webSearch.trim()} type="submit">
-              Search
-            </button>
-          </form>
+          {renderWebSearchForm()}
 
           <div className="workspace__actions">
             <input
