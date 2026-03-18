@@ -415,6 +415,21 @@ textarea {
   box-shadow: 0 12px 22px rgba(57, 45, 31, 0.08);
 }
 
+.task-card--personal {
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--personal) 16%);
+  border-color: color-mix(in srgb, var(--line) 75%, var(--personal) 25%);
+}
+
+.task-card--work {
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--work) 16%);
+  border-color: color-mix(in srgb, var(--line) 75%, var(--work) 25%);
+}
+
+.task-card--school {
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--school) 16%);
+  border-color: color-mix(in srgb, var(--line) 75%, var(--school) 25%);
+}
+
 .task-card h3 {
   margin: 0 0 0.45rem;
   font-size: 1rem;
@@ -641,6 +656,18 @@ label {
   background: rgba(214, 198, 167, 0.28);
 }
 
+.calendar-pill--personal {
+  background: color-mix(in srgb, var(--calendar-surface) 72%, var(--personal) 28%);
+}
+
+.calendar-pill--work {
+  background: color-mix(in srgb, var(--calendar-surface) 72%, var(--work) 28%);
+}
+
+.calendar-pill--school {
+  background: color-mix(in srgb, var(--calendar-surface) 72%, var(--school) 28%);
+}
+
 .calendar-pill small,
 .future-event small,
 .timeline-event p,
@@ -723,6 +750,24 @@ label {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--card-bg);
+}
+
+.timeline-event--personal,
+.future-event--personal {
+  background: color-mix(in srgb, var(--card-bg) 82%, var(--personal) 18%);
+  border-color: color-mix(in srgb, var(--line) 72%, var(--personal) 28%);
+}
+
+.timeline-event--work,
+.future-event--work {
+  background: color-mix(in srgb, var(--card-bg) 82%, var(--work) 18%);
+  border-color: color-mix(in srgb, var(--line) 72%, var(--work) 28%);
+}
+
+.timeline-event--school,
+.future-event--school {
+  background: color-mix(in srgb, var(--card-bg) 82%, var(--school) 18%);
+  border-color: color-mix(in srgb, var(--line) 72%, var(--school) 28%);
 }
 
 .feed-item--button {

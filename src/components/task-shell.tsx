@@ -528,7 +528,7 @@ export function TaskShell() {
       const nextTasks = sortTasks([nextTask, ...tasks]);
       setTasks(nextTasks);
       setSelectedTaskId(nextTask.id);
-      setIsDetailOpen(true);
+      setIsDetailOpen(false);
       setDraft(EMPTY_TASK);
       setNotice("Task added in demo mode.");
       return;
@@ -556,7 +556,7 @@ export function TaskShell() {
     const nextTasks = sortTasks([data as Task, ...tasks]);
     setTasks(nextTasks);
     setSelectedTaskId(data.id);
-    setIsDetailOpen(true);
+    setIsDetailOpen(false);
     setDraft(EMPTY_TASK);
     setNotice("Task created.");
     setIsSaving(false);
@@ -1243,7 +1243,7 @@ export function TaskShell() {
               <div className="task-list">
                 {statusTasks.map((task) => (
                   <button
-                    className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""}`}
+                    className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
                     key={task.id}
                     onClick={() => {
                       setSelectedTaskId(task.id);
@@ -1318,7 +1318,10 @@ export function TaskShell() {
                       <span className="all-day-strip__label">All day</span>
                       <div className="all-day-strip__items">
                         {todayAllDayEvents.map((event) => (
-                          <article className="calendar-pill" key={event.id}>
+                          <article
+                            className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
+                            key={event.id}
+                          >
                             <span>{event.summary}</span>
                             <small>{event.sourceName ?? event.source}</small>
                           </article>
@@ -1350,7 +1353,10 @@ export function TaskShell() {
                           <div className="timeline-row__events">
                             {eventsForHour.length ? (
                               eventsForHour.map((event) => (
-                                <article className="timeline-event" key={event.id}>
+                                <article
+                                  className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
+                                  key={event.id}
+                                >
                                   <div className="timeline-event__header">
                                     <h4>{event.summary}</h4>
                                     <span>{formatEventTimeRange(event)}</span>
@@ -1396,7 +1402,10 @@ export function TaskShell() {
                       {bucket.events.length ? (
                         <div className="future-day__events">
                           {bucket.events.map((event) => (
-                            <article className="future-event" key={event.id}>
+                            <article
+                              className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
+                              key={event.id}
+                            >
                               <div>
                                 <strong>{event.summary}</strong>
                                 <p>{formatEventTimeRange(event)}</p>
