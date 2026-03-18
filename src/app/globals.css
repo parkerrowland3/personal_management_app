@@ -41,6 +41,7 @@
   --priority-medium-text: #7e5a23;
   --priority-high-text: #89452a;
   --scroll-fade-size: 1.1rem;
+  --scroll-fade-active-size: var(--scroll-fade-size);
   --space-glow-1: rgba(214, 198, 167, 0.18);
   --space-glow-2: rgba(195, 191, 214, 0.14);
   --space-accent: var(--accent);
@@ -90,6 +91,7 @@
     --priority-medium-text: #f2d08b;
     --priority-high-text: #f3b39a;
     --scroll-fade-size: 1.1rem;
+    --scroll-fade-active-size: var(--scroll-fade-size);
     --space-glow-1: rgba(214, 198, 167, 0.12);
     --space-glow-2: rgba(195, 191, 214, 0.1);
     --space-accent: var(--accent);
@@ -1329,15 +1331,15 @@ label {
     -webkit-mask-image: linear-gradient(
       180deg,
       transparent 0,
-      #000 var(--scroll-fade-size),
-      #000 calc(100% - var(--scroll-fade-size)),
+      #000 var(--scroll-fade-active-size),
+      #000 calc(100% - var(--scroll-fade-active-size)),
       transparent 100%
     );
     mask-image: linear-gradient(
       180deg,
       transparent 0,
-      #000 var(--scroll-fade-size),
-      #000 calc(100% - var(--scroll-fade-size)),
+      #000 var(--scroll-fade-active-size),
+      #000 calc(100% - var(--scroll-fade-active-size)),
       transparent 100%
     );
     -webkit-mask-repeat: no-repeat;
@@ -1350,75 +1352,7 @@ label {
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
-  }
-
-  .scroll-shell::before,
-  .scroll-shell::after {
-    content: "";
-    position: absolute;
-    left: calc(var(--scroll-fade-size) * -1.4);
-    right: calc(var(--scroll-fade-size) * -1.4);
-    display: block;
-    height: calc(var(--scroll-fade-size) * 2.8);
-    z-index: 4;
-    pointer-events: none;
-    backdrop-filter: blur(16px) saturate(0.96);
-    filter: blur(10px);
-    opacity: 0.96;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
-  }
-
-  .scroll-shell::before {
-    top: calc(var(--scroll-fade-size) * -1.1);
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bg-elevated) 70%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 28%, transparent) 30%,
-      color-mix(in srgb, var(--panel) 12%, transparent) 64%,
-      transparent 100%
-    );
-    -webkit-mask-image: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.88) 0%,
-      rgba(0, 0, 0, 0.62) 24%,
-      rgba(0, 0, 0, 0.28) 62%,
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.88) 0%,
-      rgba(0, 0, 0, 0.62) 24%,
-      rgba(0, 0, 0, 0.28) 62%,
-      transparent 100%
-    );
-  }
-
-  .scroll-shell::after {
-    bottom: calc(var(--scroll-fade-size) * -1.1);
-    background: linear-gradient(
-      0deg,
-      color-mix(in srgb, var(--bg-elevated) 70%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 28%, transparent) 30%,
-      color-mix(in srgb, var(--panel) 12%, transparent) 64%,
-      transparent 100%
-    );
-    -webkit-mask-image: linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0.88) 0%,
-      rgba(0, 0, 0, 0.62) 24%,
-      rgba(0, 0, 0, 0.28) 62%,
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0.88) 0%,
-      rgba(0, 0, 0, 0.62) 24%,
-      rgba(0, 0, 0, 0.28) 62%,
-      transparent 100%
-    );
+    overflow: hidden;
   }
 
   .sidebar,
@@ -1428,10 +1362,14 @@ label {
   }
 
   .sidebar__scroll {
+    --scroll-fade-active-size: calc(var(--scroll-fade-size) * 2.35);
     min-height: 0;
     height: 100%;
     overflow-y: auto;
-    padding: 0.2rem 0.35rem 0.8rem 0;
+    margin-top: calc(var(--scroll-fade-active-size) * -1);
+    margin-bottom: calc(var(--scroll-fade-active-size) * -1);
+    padding: calc(var(--scroll-fade-active-size) + 0.2rem) 0.35rem
+      calc(var(--scroll-fade-active-size) + 0.8rem) 0;
     scrollbar-gutter: stable;
   }
 
@@ -1445,10 +1383,14 @@ label {
   }
 
   .workspace__content {
+    --scroll-fade-active-size: calc(var(--scroll-fade-size) * 2.35);
     min-height: 0;
     height: 100%;
     overflow-y: auto;
-    padding: 0.2rem 0.35rem 1rem 0;
+    margin-top: calc(var(--scroll-fade-active-size) * -1);
+    margin-bottom: calc(var(--scroll-fade-active-size) * -1);
+    padding: calc(var(--scroll-fade-active-size) + 0.2rem) 0.35rem
+      calc(var(--scroll-fade-active-size) + 1rem) 0;
     scrollbar-gutter: stable;
   }
 
