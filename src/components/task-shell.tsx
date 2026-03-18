@@ -1675,15 +1675,15 @@ export function TaskShell() {
           </form>
 
           <div className="workspace__actions">
-            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
-              Add task
-            </button>
             <input
               className="search-input"
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Filter tasks"
               value={search}
             />
+            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+              Add task
+            </button>
           </div>
         </div>
 
