@@ -1605,7 +1605,7 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
-            <button className="secondary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
               Add task
             </button>
             <form className="web-search" onSubmit={handleWebSearchSubmit}>
