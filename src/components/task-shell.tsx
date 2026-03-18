@@ -66,6 +66,18 @@ const priorityLabels: Record<TaskPriority, string> = {
   high: "High"
 };
 
+const DEFAULT_TIMELINE_START_HOUR = 7;
+const DEFAULT_TIMELINE_END_HOUR = 21;
+const MIN_TIMED_EVENT_DURATION_MINUTES = 30;
+
+type TimelineEventLayout = {
+  event: CalendarEvent;
+  topPercent: number;
+  heightPercent: number;
+  column: number;
+  totalColumns: number;
+};
+
 function sortTasks(tasks: Task[]) {
   return [...tasks].sort((left, right) => {
     if (left.status !== right.status) {
@@ -474,17 +486,53 @@ export function TaskShell() {
     [todayEvents]
   );
 
-  const timelineHours = useMemo(() => {
+  const timelineBounds = useMemo(() => {
     if (!todayTimedEvents.length) {
-      return Array.from({ length: 14 }, (_, index) => index + 7);
+      return {
+        startHour: DEFAULT_TIMELINE_START_HOUR,
+        endHour: DEFAULT_TIMELINE_END_HOUR
+      };
     }
 
-    const hours = todayTimedEvents.map((event) => new Date(event.start!).getHours());
-    const first = Math.max(0, Math.min(...hours, 7));
-    const last = Math.min(23, Math.max(...hours, 20));
+    const eventRanges = todayTimedEvents.map((event) => getTimedEventRangeInMinutes(event));
+    const earliestStart = Math.min(...eventRanges.map((range) => range.startMinutes));
+    const latestEnd = Math.max(...eventRanges.map((range) => range.endMinutes));
 
-    return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+    const startHour = Math.max(0, Math.min(Math.floor(earliestStart / 60), DEFAULT_TIMELINE_START_HOUR));
+    const endHour = Math.min(24, Math.max(Math.ceil(latestEnd / 60), DEFAULT_TIMELINE_END_HOUR));
+
+    return {
+      startHour,
+      endHour: endHour > startHour ? endHour : startHour + 1
+    };
   }, [todayTimedEvents]);
+
+  const timelineHours = useMemo(() => {
+    return Array.from(
+      { length: timelineBounds.endHour - timelineBounds.startHour },
+      (_, index) => timelineBounds.startHour + index
+    );
+  }, [timelineBounds.endHour, timelineBounds.startHour]);
+
+  const timelineEventLayouts = useMemo(() => {
+    return getTimelineEventLayouts(
+      todayTimedEvents,
+      timelineBounds.startHour,
+      timelineBounds.endHour
+    );
+  }, [timelineBounds.endHour, timelineBounds.startHour, todayTimedEvents]);
+
+  const nowLineOffset = useMemo(() => {
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const timelineStartMinutes = timelineBounds.startHour * 60;
+    const timelineEndMinutes = timelineBounds.endHour * 60;
+
+    if (currentMinutes < timelineStartMinutes || currentMinutes > timelineEndMinutes) {
+      return null;
+    }
+
+    return ((currentMinutes - timelineStartMinutes) / (timelineEndMinutes - timelineStartMinutes)) * 100;
+  }, [now, timelineBounds.endHour, timelineBounds.startHour]);
 
   async function sendMagicLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1331,46 +1379,54 @@ export function TaskShell() {
                   ) : null}
 
                   <div className="timeline">
-                    {timelineHours.map((hour) => {
-                      const eventsForHour = todayTimedEvents.filter(
-                        (event) => new Date(event.start!).getHours() === hour
-                      );
-
-                      return (
-                        <div className="timeline-row" key={hour}>
-                          {isCurrentHour(hour, now) ? (
-                            <div
-                              className="timeline-now-line"
-                              style={{
-                                top: `${(now.getMinutes() / 60) * 100}%`
-                              }}
-                            >
-                              <span className="timeline-now-line__label">{formatNow(now)}</span>
-                              <span className="timeline-now-line__rule" />
-                            </div>
-                          ) : null}
-                          <div className="timeline-row__hour">{formatHour(hour)}</div>
-                          <div className="timeline-row__events">
-                            {eventsForHour.length ? (
-                              eventsForHour.map((event) => (
-                                <article
-                                  className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
-                                  key={event.id}
-                                >
-                                  <div className="timeline-event__header">
-                                    <h4>{event.summary}</h4>
-                                    <span>{formatEventTimeRange(event)}</span>
-                                  </div>
-                                  <p>{event.sourceName ?? event.source}</p>
-                                </article>
-                              ))
-                            ) : (
-                              <div className="timeline-row__empty" />
-                            )}
-                          </div>
+                    <div className="timeline__hours">
+                      {timelineHours.map((hour) => (
+                        <div className="timeline-row__hour" key={hour}>
+                          {formatHour(hour)}
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
+                    <div className="timeline__body">
+                      {timelineHours.map((hour) => (
+                        <div className="timeline-slot" key={hour}>
+                          <div className="timeline-slot__quarter timeline-slot__quarter--quarter" />
+                          <div className="timeline-slot__quarter timeline-slot__quarter--half" />
+                          <div className="timeline-slot__quarter timeline-slot__quarter--three-quarters" />
+                        </div>
+                      ))}
+
+                      {nowLineOffset !== null ? (
+                        <div
+                          className="timeline-now-line"
+                          style={{
+                            top: `${nowLineOffset}%`
+                          }}
+                        >
+                          <span className="timeline-now-line__label">{formatNow(now)}</span>
+                          <span className="timeline-now-line__rule" />
+                        </div>
+                      ) : null}
+
+                      {timelineEventLayouts.length ? (
+                        <div className="timeline__events">
+                          {timelineEventLayouts.map(({ event, topPercent, heightPercent, column, totalColumns }) => (
+                            <article
+                              className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
+                              key={event.id}
+                              style={getTimelineEventStyle(topPercent, heightPercent, column, totalColumns)}
+                            >
+                              <div className="timeline-event__header">
+                                <h4>{event.summary}</h4>
+                                <span>{formatEventTimeRange(event)}</span>
+                              </div>
+                              <p>{event.sourceName ?? event.source}</p>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="timeline-row__empty timeline-row__empty--full" />
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1869,8 +1925,117 @@ function parseEventDate(value: string) {
   return new Date(value);
 }
 
-function isCurrentHour(hour: number, now: Date) {
-  return hour === now.getHours();
+function getTimedEventRangeInMinutes(event: CalendarEvent) {
+  const startDate = event.start ? new Date(event.start) : null;
+  const endDate = event.end ? new Date(event.end) : null;
+  const startMinutes = startDate ? startDate.getHours() * 60 + startDate.getMinutes() : 0;
+  const rawEndMinutes = endDate ? endDate.getHours() * 60 + endDate.getMinutes() : startMinutes + 60;
+
+  return {
+    startMinutes,
+    endMinutes: Math.max(rawEndMinutes, startMinutes + MIN_TIMED_EVENT_DURATION_MINUTES)
+  };
+}
+
+function getTimelineEventLayouts(
+  events: CalendarEvent[],
+  startHour: number,
+  endHour: number
+): TimelineEventLayout[] {
+  const timelineStartMinutes = startHour * 60;
+  const timelineEndMinutes = endHour * 60;
+
+  const normalized = events
+    .map((event) => {
+      const range = getTimedEventRangeInMinutes(event);
+      const clippedStart = clamp(range.startMinutes, timelineStartMinutes, timelineEndMinutes);
+      const clippedEnd = clamp(range.endMinutes, timelineStartMinutes, timelineEndMinutes);
+
+      return {
+        event,
+        startMinutes: clippedStart,
+        endMinutes: Math.max(clippedEnd, clippedStart + MIN_TIMED_EVENT_DURATION_MINUTES)
+      };
+    })
+    .filter((event) => event.startMinutes < timelineEndMinutes && event.endMinutes > timelineStartMinutes)
+    .sort((left, right) => {
+      if (left.startMinutes !== right.startMinutes) {
+        return left.startMinutes - right.startMinutes;
+      }
+
+      return left.endMinutes - right.endMinutes;
+    });
+
+  const groups: typeof normalized[] = [];
+  let currentGroup: typeof normalized = [];
+  let currentGroupEnd = -1;
+
+  normalized.forEach((event) => {
+    if (!currentGroup.length || event.startMinutes < currentGroupEnd) {
+      currentGroup.push(event);
+      currentGroupEnd = Math.max(currentGroupEnd, event.endMinutes);
+      return;
+    }
+
+    groups.push(currentGroup);
+    currentGroup = [event];
+    currentGroupEnd = event.endMinutes;
+  });
+
+  if (currentGroup.length) {
+    groups.push(currentGroup);
+  }
+
+  const totalTimelineMinutes = timelineEndMinutes - timelineStartMinutes;
+
+  return groups.flatMap((group) => {
+    const lanes: number[] = [];
+    const assignments = group.map((event) => {
+      let column = lanes.findIndex((laneEndMinutes) => laneEndMinutes <= event.startMinutes);
+
+      if (column === -1) {
+        lanes.push(event.endMinutes);
+        column = lanes.length - 1;
+      } else {
+        lanes[column] = event.endMinutes;
+      }
+
+      return {
+        ...event,
+        column
+      };
+    });
+
+    const totalColumns = lanes.length;
+
+    return assignments.map(({ event, startMinutes, endMinutes, column }) => ({
+      event,
+      topPercent: ((startMinutes - timelineStartMinutes) / totalTimelineMinutes) * 100,
+      heightPercent: ((endMinutes - startMinutes) / totalTimelineMinutes) * 100,
+      column,
+      totalColumns
+    }));
+  });
+}
+
+function getTimelineEventStyle(
+  topPercent: number,
+  heightPercent: number,
+  column: number,
+  totalColumns: number
+) {
+  const horizontalGapRem = 0.4;
+
+  return {
+    top: `calc(${topPercent}% + 0.15rem)`,
+    height: `max(calc(${heightPercent}% - 0.3rem), 2.75rem)`,
+    left: `calc(${(column / totalColumns) * 100}% + ${horizontalGapRem / 2}rem)`,
+    width: `calc(${100 / totalColumns}% - ${horizontalGapRem}rem)`
+  };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function formatNow(now: Date) {

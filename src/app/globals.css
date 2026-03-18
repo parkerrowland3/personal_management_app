@@ -676,45 +676,87 @@ label {
 }
 
 .timeline {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.timeline__hours,
+.timeline__body {
   display: flex;
   flex-direction: column;
 }
 
-.timeline-row {
+.timeline__body {
   position: relative;
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-  border-top: 1px solid var(--separator);
-  min-height: 72px;
-}
-
-.timeline-row:first-child {
-  border-top: 0;
+  min-height: 0;
 }
 
 .timeline-row__hour {
   color: var(--muted);
   font-size: 0.85rem;
-  padding-top: 0.45rem;
+  height: 88px;
+  padding-top: 0.25rem;
 }
 
-.timeline-row__events {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+.timeline-slot {
+  position: relative;
+  height: 88px;
+  border-top: 1px solid var(--separator);
+}
+
+.timeline-slot:first-child {
+  border-top: 0;
+}
+
+.timeline-slot__quarter {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--separator);
+  opacity: 0.8;
+}
+
+.timeline-slot__quarter--quarter {
+  top: 25%;
+}
+
+.timeline-slot__quarter--half {
+  top: 50%;
+}
+
+.timeline-slot__quarter--three-quarters {
+  top: 75%;
+}
+
+.timeline__events {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 
 .timeline-row__empty {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  background: linear-gradient(
+    180deg,
+    transparent 0,
+    transparent calc(100% - 1.25rem),
+    transparent 100%
+  );
+}
+
+.timeline-row__empty--full {
+  inset: 0.35rem 0 0.35rem;
   min-height: 1.25rem;
-  border-radius: 999px;
+  border-radius: 18px;
   background: var(--timeline-empty-bg);
 }
 
 .timeline-now-line {
   position: absolute;
-  left: 0;
+  left: -72px;
   right: 0;
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -752,6 +794,12 @@ label {
   background: var(--card-bg);
 }
 
+.timeline-event {
+  position: absolute;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .timeline-event--personal,
 .future-event--personal {
   background: color-mix(in srgb, var(--card-bg) 82%, var(--personal) 18%);
@@ -786,6 +834,12 @@ label {
 .future-day__header h4 {
   margin: 0;
   font-size: 1rem;
+}
+
+.timeline-event__header span {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .timeline-event p,
