@@ -390,6 +390,13 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 420px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.board-column--drag-over {
+  border-color: var(--space-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--space-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--panel) 92%, var(--space-accent) 8%);
 }
 
 .task-list {
@@ -405,6 +412,7 @@ textarea {
   padding: 1rem;
   background: var(--card-bg);
   text-align: left;
+  cursor: grab;
   transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
@@ -413,6 +421,12 @@ textarea {
   transform: translateY(-1px);
   border-color: var(--line-strong);
   box-shadow: 0 12px 22px rgba(57, 45, 31, 0.08);
+}
+
+.task-card--dragging {
+  opacity: 0.52;
+  transform: scale(0.99);
+  cursor: grabbing;
 }
 
 .task-card--personal {

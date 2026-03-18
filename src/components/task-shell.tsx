@@ -7,6 +7,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type DragEvent,
   type FormEvent,
   type ReactNode
 } from "react";
@@ -138,6 +139,8 @@ export function TaskShell() {
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState<string | null>(
     isSupabaseConfigured()
@@ -146,6 +149,7 @@ export function TaskShell() {
   );
 
   const deferredSearch = useDeferredValue(search);
+  const todayKey = useMemo(() => formatDateInputValue(now), [now]);
   const supabase = getSupabaseBrowserClient();
 
   const anyOverlayOpen =
@@ -433,6 +437,38 @@ export function TaskShell() {
     [selectedTaskId, tasks]
   );
 
+  useEffect(() => {
+    const tasksToPromote = tasks.filter((task) => shouldAutoMoveTaskToToday(task, todayKey));
+
+    if (!tasksToPromote.length) {
+      return;
+    }
+
+    setTasks((current) =>
+      sortTasks(
+        current.map((task) =>
+          shouldAutoMoveTaskToToday(task, todayKey) ? { ...task, status: "today" } : task
+        )
+      )
+    );
+
+    if (!supabase || !session?.user.id) {
+      return;
+    }
+
+    const persistedTasks = tasksToPromote.filter((task) => !task.id.startsWith("sample-"));
+
+    if (!persistedTasks.length) {
+      return;
+    }
+
+    void Promise.all(
+      persistedTasks.map((task) =>
+        supabase.from("tasks").update({ status: "today" }).eq("id", task.id)
+      )
+    );
+  }, [session?.user.id, supabase, tasks, todayKey]);
+
   const visibleTasks = useMemo(() => {
     const normalized = deferredSearch.trim().toLowerCase();
 
@@ -574,11 +610,13 @@ export function TaskShell() {
     }
 
     if (!supabase || !session?.user.id) {
+      const nextStatus = getNormalizedTaskStatus(draft.status, draft.due_date, todayKey);
       const nextTask: Task = {
         ...draft,
         id: crypto.randomUUID(),
         title: draft.title.trim(),
-        description: draft.description?.trim() || null
+        description: draft.description?.trim() || null,
+        status: nextStatus
       };
       const nextTasks = sortTasks([nextTask, ...tasks]);
       setTasks(nextTasks);
@@ -597,7 +635,8 @@ export function TaskShell() {
         ...draft,
         user_id: session.user.id,
         title: draft.title.trim(),
-        description: draft.description?.trim() || null
+        description: draft.description?.trim() || null,
+        status: getNormalizedTaskStatus(draft.status, draft.due_date, todayKey)
       })
       .select()
       .single();
@@ -622,9 +661,11 @@ export function TaskShell() {
       return;
     }
 
+    const normalizedPatch = getNormalizedTaskPatch(selectedTask, patch, todayKey);
+
     const optimisticTask: Task = {
       ...selectedTask,
-      ...patch
+      ...normalizedPatch
     };
 
     setTasks((current) =>
@@ -639,8 +680,8 @@ export function TaskShell() {
     const { error } = await supabase
       .from("tasks")
       .update({
-        ...patch,
-        description: patch.description?.trim() || null
+        ...normalizedPatch,
+        description: normalizedPatch.description?.trim() || null
       })
       .eq("id", selectedTask.id);
 
@@ -651,6 +692,84 @@ export function TaskShell() {
     }
 
     setNotice("Task updated.");
+  }
+
+  async function moveTaskToStatus(taskId: string, status: TaskStatus) {
+    const task = tasks.find((item) => item.id === taskId);
+
+    if (!task) {
+      return;
+    }
+
+    const nextStatus = getNormalizedTaskStatus(status, task.due_date, todayKey);
+
+    if (task.status === nextStatus) {
+      return;
+    }
+
+    const optimisticTask = {
+      ...task,
+      status: nextStatus
+    };
+
+    setTasks((current) =>
+      sortTasks(current.map((item) => (item.id === taskId ? optimisticTask : item)))
+    );
+
+    if (selectedTaskId === taskId) {
+      setSelectedTaskId(taskId);
+    }
+
+    if (!supabase || !session?.user.id || task.id.startsWith("sample-")) {
+      setNotice("Task moved locally in demo mode.");
+      return;
+    }
+
+    const { error } = await supabase.from("tasks").update({ status: nextStatus }).eq("id", taskId);
+
+    if (error) {
+      setNotice(error.message);
+      await loadTasks(session.user.id);
+      return;
+    }
+
+    setNotice(`Task moved to ${statusLabels[nextStatus]}.`);
+  }
+
+  function handleTaskDragStart(event: DragEvent<HTMLButtonElement>, taskId: string) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", taskId);
+    setDraggedTaskId(taskId);
+  }
+
+  function handleTaskDragEnd() {
+    setDraggedTaskId(null);
+    setDragOverStatus(null);
+  }
+
+  function handleColumnDragOver(event: DragEvent<HTMLElement>, status: TaskStatus) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverStatus(status);
+  }
+
+  function handleColumnDragLeave(status: TaskStatus) {
+    if (dragOverStatus === status) {
+      setDragOverStatus(null);
+    }
+  }
+
+  async function handleColumnDrop(event: DragEvent<HTMLElement>, status: TaskStatus) {
+    event.preventDefault();
+    const taskId = draggedTaskId ?? event.dataTransfer.getData("text/plain");
+    setDragOverStatus(null);
+    setDraggedTaskId(null);
+
+    if (!taskId) {
+      return;
+    }
+
+    await moveTaskToStatus(taskId, status);
   }
 
   async function deleteSelectedTask() {
@@ -1294,7 +1413,13 @@ export function TaskShell() {
 
         <section className="board">
           {groupedTasks.map(({ status, tasks: statusTasks }) => (
-            <article className="board-column panel" key={status}>
+            <article
+              className={`board-column panel ${dragOverStatus === status ? "board-column--drag-over" : ""}`}
+              key={status}
+              onDragLeave={() => handleColumnDragLeave(status)}
+              onDragOver={(event) => handleColumnDragOver(event, status)}
+              onDrop={(event) => void handleColumnDrop(event, status)}
+            >
               <div className="panel__header">
                 <h2>{statusLabels[status]}</h2>
                 <span className="count-pill">{statusTasks.length}</span>
@@ -1302,7 +1427,10 @@ export function TaskShell() {
               <div className="task-list">
                 {statusTasks.map((task) => (
                   <button
-                    className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
+                    className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${draggedTaskId === task.id ? "task-card--dragging" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
+                    draggable
+                    onDragEnd={handleTaskDragEnd}
+                    onDragStart={(event) => handleTaskDragStart(event, task.id)}
                     key={task.id}
                     onClick={() => {
                       setSelectedTaskId(task.id);
@@ -1939,6 +2067,13 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatDayHeading(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -1992,6 +2127,35 @@ function formatEventDateLabel(event: CalendarEvent) {
     month: "short",
     day: "numeric"
   }).format(parseEventDate(event.start));
+}
+
+function getNormalizedTaskStatus(
+  status: TaskStatus,
+  dueDate: string | null | undefined,
+  todayKey: string
+) {
+  if (dueDate === todayKey && status === "backlog") {
+    return "today";
+  }
+
+  return status;
+}
+
+function getNormalizedTaskPatch(task: Task, patch: Partial<TaskDraft>, todayKey: string) {
+  const nextStatus = getNormalizedTaskStatus(
+    patch.status ?? task.status,
+    patch.due_date === undefined ? task.due_date : patch.due_date,
+    todayKey
+  );
+
+  return {
+    ...patch,
+    status: nextStatus
+  };
+}
+
+function shouldAutoMoveTaskToToday(task: Task, todayKey: string) {
+  return task.due_date === todayKey && task.status === "backlog";
 }
 
 function parseEventDate(value: string) {
