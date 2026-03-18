@@ -2055,7 +2055,7 @@ export function TaskShell() {
           {notice ? <div className="notice">{notice}</div> : null}
         </div>
 
-        <div className="workspace__content">
+        <div className="workspace__content scroll-fade">
           <section className="board">
             {groupedTasks.map(({ status, tasks: statusTasks }) => (
               <article
@@ -2139,7 +2139,7 @@ export function TaskShell() {
                     </div>
                   </div>
 
-                  <div className="calendar-card__body scroll-fade">
+                  <div className="calendar-card__body">
                     {!session ? (
                       <div className="empty-state">
                         <p>Sign in to load your calendar.</p>
@@ -2245,7 +2245,7 @@ export function TaskShell() {
                     </div>
                   </div>
 
-                  <div className="calendar-card__body scroll-fade">
+                  <div className="calendar-card__body">
                     {!session ? (
                       <div className="empty-state">
                         <p>Sign in to load your calendar.</p>
