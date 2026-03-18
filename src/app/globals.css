@@ -1356,13 +1356,15 @@ label {
   .scroll-shell::after {
     content: "";
     position: absolute;
-    left: 0;
-    right: 0;
+    left: calc(var(--scroll-fade-size) * -1.4);
+    right: calc(var(--scroll-fade-size) * -1.4);
     display: block;
-    height: calc(var(--scroll-fade-size) * 2.1);
+    height: calc(var(--scroll-fade-size) * 2.8);
     z-index: 4;
     pointer-events: none;
     backdrop-filter: blur(16px) saturate(0.96);
+    filter: blur(10px);
+    opacity: 0.96;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
     -webkit-mask-size: 100% 100%;
@@ -1370,51 +1372,51 @@ label {
   }
 
   .scroll-shell::before {
-    top: 0;
+    top: calc(var(--scroll-fade-size) * -1.1);
     background: linear-gradient(
       180deg,
-      color-mix(in srgb, var(--bg-elevated) 76%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 34%, transparent) 34%,
-      color-mix(in srgb, var(--panel) 14%, transparent) 68%,
+      color-mix(in srgb, var(--bg-elevated) 70%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 28%, transparent) 30%,
+      color-mix(in srgb, var(--panel) 12%, transparent) 64%,
       transparent 100%
     );
     -webkit-mask-image: linear-gradient(
       180deg,
-      rgba(0, 0, 0, 0.94) 0%,
-      rgba(0, 0, 0, 0.72) 28%,
-      rgba(0, 0, 0, 0.34) 66%,
+      rgba(0, 0, 0, 0.88) 0%,
+      rgba(0, 0, 0, 0.62) 24%,
+      rgba(0, 0, 0, 0.28) 62%,
       transparent 100%
     );
     mask-image: linear-gradient(
       180deg,
-      rgba(0, 0, 0, 0.94) 0%,
-      rgba(0, 0, 0, 0.72) 28%,
-      rgba(0, 0, 0, 0.34) 66%,
+      rgba(0, 0, 0, 0.88) 0%,
+      rgba(0, 0, 0, 0.62) 24%,
+      rgba(0, 0, 0, 0.28) 62%,
       transparent 100%
     );
   }
 
   .scroll-shell::after {
-    bottom: 0;
+    bottom: calc(var(--scroll-fade-size) * -1.1);
     background: linear-gradient(
       0deg,
-      color-mix(in srgb, var(--bg-elevated) 76%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 34%, transparent) 34%,
-      color-mix(in srgb, var(--panel) 14%, transparent) 68%,
+      color-mix(in srgb, var(--bg-elevated) 70%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 28%, transparent) 30%,
+      color-mix(in srgb, var(--panel) 12%, transparent) 64%,
       transparent 100%
     );
     -webkit-mask-image: linear-gradient(
       0deg,
-      rgba(0, 0, 0, 0.94) 0%,
-      rgba(0, 0, 0, 0.72) 28%,
-      rgba(0, 0, 0, 0.34) 66%,
+      rgba(0, 0, 0, 0.88) 0%,
+      rgba(0, 0, 0, 0.62) 24%,
+      rgba(0, 0, 0, 0.28) 62%,
       transparent 100%
     );
     mask-image: linear-gradient(
       0deg,
-      rgba(0, 0, 0, 0.94) 0%,
-      rgba(0, 0, 0, 0.72) 28%,
-      rgba(0, 0, 0, 0.34) 66%,
+      rgba(0, 0, 0, 0.88) 0%,
+      rgba(0, 0, 0, 0.62) 24%,
+      rgba(0, 0, 0, 0.28) 62%,
       transparent 100%
     );
   }
