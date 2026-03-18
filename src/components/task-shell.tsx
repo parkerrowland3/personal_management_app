@@ -1308,7 +1308,13 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
-            <form action="https://duckduckgo.com/" className="web-search" method="GET">
+            <form
+              action="https://duckduckgo.com/"
+              className="web-search"
+              method="GET"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
               <input
                 className="web-search__input"
                 name="q"
