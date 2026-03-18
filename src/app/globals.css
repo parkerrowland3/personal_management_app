@@ -1359,18 +1359,37 @@ label {
     left: 0;
     right: 0;
     display: block;
-    height: calc(var(--scroll-fade-size) + 0.45rem);
+    height: calc(var(--scroll-fade-size) * 2.1);
     z-index: 4;
     pointer-events: none;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(16px) saturate(0.96);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
   }
 
   .scroll-shell::before {
     top: 0;
     background: linear-gradient(
       180deg,
-      color-mix(in srgb, var(--bg) 90%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 56%, transparent) 55%,
+      color-mix(in srgb, var(--bg-elevated) 76%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 34%, transparent) 34%,
+      color-mix(in srgb, var(--panel) 14%, transparent) 68%,
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.94) 0%,
+      rgba(0, 0, 0, 0.72) 28%,
+      rgba(0, 0, 0, 0.34) 66%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.94) 0%,
+      rgba(0, 0, 0, 0.72) 28%,
+      rgba(0, 0, 0, 0.34) 66%,
       transparent 100%
     );
   }
@@ -1379,8 +1398,23 @@ label {
     bottom: 0;
     background: linear-gradient(
       0deg,
-      color-mix(in srgb, var(--bg) 90%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 56%, transparent) 55%,
+      color-mix(in srgb, var(--bg-elevated) 76%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 34%, transparent) 34%,
+      color-mix(in srgb, var(--panel) 14%, transparent) 68%,
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.94) 0%,
+      rgba(0, 0, 0, 0.72) 28%,
+      rgba(0, 0, 0, 0.34) 66%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.94) 0%,
+      rgba(0, 0, 0, 0.72) 28%,
+      rgba(0, 0, 0, 0.34) 66%,
       transparent 100%
     );
   }
