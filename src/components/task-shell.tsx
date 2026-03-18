@@ -2012,7 +2012,7 @@ export function TaskShell() {
           </p>
         </div>
 
-        <div className="sidebar__scroll scroll-fade">
+        <div className="sidebar__scroll scroll-fade scroll-fade-shell">
           <section className="panel">
             <div className="panel__header">
               <h2>Spaces</h2>
@@ -2055,7 +2055,7 @@ export function TaskShell() {
           {notice ? <div className="notice">{notice}</div> : null}
         </div>
 
-        <div className="workspace__content scroll-fade">
+        <div className="workspace__content scroll-fade scroll-fade-shell">
           <section className="board">
             {groupedTasks.map(({ status, tasks: statusTasks }) => (
               <article

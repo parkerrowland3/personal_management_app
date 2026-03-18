@@ -1346,6 +1346,48 @@ label {
     mask-size: 100% 100%;
   }
 
+  .scroll-fade-shell {
+    position: relative;
+    isolation: isolate;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .scroll-fade-shell::before,
+  .scroll-fade-shell::after {
+    content: "";
+    position: sticky;
+    left: 0;
+    right: 0;
+    display: block;
+    height: calc(var(--scroll-fade-size) + 0.45rem);
+    z-index: 4;
+    pointer-events: none;
+    backdrop-filter: blur(10px);
+  }
+
+  .scroll-fade-shell::before {
+    top: 0;
+    margin-bottom: calc((var(--scroll-fade-size) + 0.45rem) * -1);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg) 90%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 56%, transparent) 55%,
+      transparent 100%
+    );
+  }
+
+  .scroll-fade-shell::after {
+    bottom: 0;
+    margin-top: calc((var(--scroll-fade-size) + 0.45rem) * -1);
+    background: linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--bg) 90%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 56%, transparent) 55%,
+      transparent 100%
+    );
+  }
+
   .sidebar,
   .workspace {
     height: 100%;
