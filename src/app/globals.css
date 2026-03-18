@@ -40,6 +40,7 @@
   --priority-low-text: #53624f;
   --priority-medium-text: #7e5a23;
   --priority-high-text: #89452a;
+  --scroll-fade-size: 1.1rem;
   --space-glow-1: rgba(214, 198, 167, 0.18);
   --space-glow-2: rgba(195, 191, 214, 0.14);
   --space-accent: var(--accent);
@@ -88,6 +89,7 @@
     --priority-low-text: #bfd3b8;
     --priority-medium-text: #f2d08b;
     --priority-high-text: #f3b39a;
+    --scroll-fade-size: 1.1rem;
     --space-glow-1: rgba(214, 198, 167, 0.12);
     --space-glow-2: rgba(195, 191, 214, 0.1);
     --space-accent: var(--accent);
@@ -275,6 +277,15 @@ textarea {
 }
 
 .workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.workspace__top,
+.workspace__content,
+.sidebar__scroll,
+.calendar-panel__top {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -756,6 +767,14 @@ label {
   gap: 1rem;
 }
 
+.calendar-panel__top .panel__header {
+  margin-bottom: 0;
+}
+
+.calendar-panel__body {
+  min-height: 0;
+}
+
 .calendar-panel__actions {
   display: flex;
   justify-content: flex-start;
@@ -782,6 +801,10 @@ label {
 .calendar-card__header,
 .feed-manager__header {
   margin-bottom: 1rem;
+}
+
+.calendar-card__body {
+  min-height: 0;
 }
 
 .calendar-card__header h3,
@@ -1295,6 +1318,114 @@ label {
   gap: 0.85rem;
 }
 
+@media (min-width: 901px) {
+  .shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      transparent 0,
+      #000 var(--scroll-fade-size),
+      #000 calc(100% - var(--scroll-fade-size)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      transparent 0,
+      #000 var(--scroll-fade-size),
+      #000 calc(100% - var(--scroll-fade-size)),
+      transparent 100%
+    );
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+  }
+
+  .sidebar,
+  .workspace {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .sidebar__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.2rem 0.35rem 0.8rem 0;
+    scrollbar-gutter: stable;
+  }
+
+  .workspace {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .workspace__top {
+    min-height: 0;
+  }
+
+  .workspace__content {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .board {
+    height: 100%;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  .board-column {
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .task-list {
+    padding: 0.45rem 0.35rem 0.8rem 0;
+    scrollbar-gutter: stable;
+  }
+
+  .calendar-panel {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .calendar-panel__body {
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .calendar-grid {
+    height: 100%;
+    min-height: 0;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  .calendar-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .calendar-card__body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 0.15rem 0.25rem 0.8rem 0;
+    scrollbar-gutter: stable;
+  }
+
+  .calendar-card__body > .empty-state {
+    min-height: 100%;
+  }
+}
+
 @media (max-width: 1240px) {
   .shell {
     grid-template-columns: 240px minmax(0, 1fr);
@@ -1375,7 +1506,9 @@ label {
 @media (max-width: 768px) and (pointer: coarse), (max-width: 768px) and (hover: none) {
   .shell {
     display: block;
+    height: auto;
     padding: 1rem;
+    overflow: visible;
   }
 
   .desktop-shell {
