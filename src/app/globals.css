@@ -287,16 +287,19 @@ textarea {
   justify-content: flex-end;
 }
 
+.workspace__toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .web-search {
   display: flex;
   gap: 0.65rem;
   align-items: flex-start;
-  width: min(820px, 100%);
-}
-
-.workspace__search-row {
-  display: flex;
-  justify-content: center;
+  width: min(720px, 100%);
+  flex: 1 1 auto;
 }
 
 .web-search__field {
@@ -1183,9 +1186,14 @@ label {
   }
 
   .workspace__actions,
-  .workspace__search-row,
+  .workspace__toolbar,
   .web-search {
     width: 100%;
+  }
+
+  .workspace__toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .composer__grid,

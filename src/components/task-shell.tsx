@@ -1622,21 +1622,9 @@ export function TaskShell() {
             <p className="eyebrow">Dashboard</p>
             <h2>Daily command center</h2>
           </div>
-
-          <div className="workspace__actions">
-            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
-              Add task
-            </button>
-            <input
-              className="search-input"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Filter tasks"
-              value={search}
-            />
-          </div>
         </header>
 
-        <div className="workspace__search-row">
+        <div className="workspace__toolbar">
           <form className="web-search" onSubmit={handleWebSearchSubmit}>
             <div className="web-search__field">
               <input
@@ -1685,6 +1673,18 @@ export function TaskShell() {
               Search
             </button>
           </form>
+
+          <div className="workspace__actions">
+            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+              Add task
+            </button>
+            <input
+              className="search-input"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter tasks"
+              value={search}
+            />
+          </div>
         </div>
 
         {notice ? <div className="notice">{notice}</div> : null}
