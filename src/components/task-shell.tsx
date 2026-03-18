@@ -90,7 +90,7 @@ const MOBILE_SECTIONS: Array<{ id: MobileSection; label: string }> = [
   { id: "more", label: "More" }
 ];
 
-function sortTasks(tasks: Task[]) {
+function sortTasks(tasks: Task[], todayKey = formatDateInputValue(new Date())) {
   return [...tasks].sort((left, right) => {
     if (left.status !== right.status) {
       return STATUS_OPTIONS.indexOf(left.status) - STATUS_OPTIONS.indexOf(right.status);
@@ -98,6 +98,15 @@ function sortTasks(tasks: Task[]) {
 
     if (left.domain !== right.domain) {
       return DOMAIN_OPTIONS.indexOf(left.domain) - DOMAIN_OPTIONS.indexOf(right.domain);
+    }
+
+    if (left.status === "backlog") {
+      const leftDistance = getDueDateDistanceFromToday(left.due_date, todayKey);
+      const rightDistance = getDueDateDistanceFromToday(right.due_date, todayKey);
+
+      if (leftDistance !== rightDistance) {
+        return leftDistance - rightDistance;
+      }
     }
 
     if (left.due_date && right.due_date) {
@@ -3044,6 +3053,16 @@ function formatRelativeArchiveDate(value: string | null) {
 
 function toViewTransitionToken(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function getDueDateDistanceFromToday(dueDate: string | null, todayKey: string) {
+  if (!dueDate) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const dueTime = parseEventDate(dueDate).getTime();
+  const todayTime = parseEventDate(todayKey).getTime();
+  return Math.abs(dueTime - todayTime);
 }
 
 function parseEventDate(value: string) {
