@@ -1500,7 +1500,7 @@ export function TaskShell() {
       </section>
 
       {isDetailOpen ? (
-        <Overlay onClose={() => setIsDetailOpen(false)} title="Task detail">
+        <Overlay onClose={() => setIsDetailOpen(false)} title="Task detail" variant="center">
           {selectedTask ? (
             <div className="detail__content">
               <label>
