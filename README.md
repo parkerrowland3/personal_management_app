@@ -1,6 +1,6 @@
 # Focus Desk
 
-Focus Desk is a Notion-inspired personal task manager built with Next.js and Supabase, designed to deploy cleanly on Vercel. It helps you manage personal life, work, and school in one interface with email sign-in, task capture, editable task details, and status-based organization.
+Focus Desk is a Notion-inspired personal task manager built with Next.js and Supabase, designed to deploy cleanly on Vercel. It helps you manage personal life, work, and school in one interface with email code sign-in, task capture, editable task details, and status-based organization.
 
 ## Stack
 
@@ -11,7 +11,7 @@ Focus Desk is a Notion-inspired personal task manager built with Next.js and Sup
 
 ## Features
 
-- Magic link email authentication with Supabase
+- Email one-time code authentication with Supabase
 - Tasks organized by `personal`, `work`, and `school`
 - Status lanes for `backlog`, `today`, `in_progress`, and `done`
 - Priority and due date tracking
@@ -73,11 +73,12 @@ Open `http://localhost:3000`.
 
 ### Authentication
 
-This app uses `signInWithOtp`, so make sure email auth is enabled:
+This app uses Supabase email OTP, so make sure email auth is enabled:
 
 1. Go to `Authentication > Providers`.
 2. Ensure `Email` is enabled.
-3. Leave magic links enabled.
+3. In `Authentication > Email Templates`, update the sign-in template to show `{{ .Token }}` instead of `{{ .ConfirmationURL }}` so users receive a code rather than a link.
+4. Save the template changes.
 
 ### Database schema
 
@@ -185,7 +186,7 @@ Vercel will run the standard Next.js build automatically.
 ## Important behavior
 
 - Without Supabase env vars, the app runs in demo mode with sample tasks.
-- With Supabase configured, users sign in by email and tasks persist to Supabase.
+- With Supabase configured, users sign in by email code and tasks persist to Supabase.
 - Google Calendar syncing requires the additional server-side env vars listed above.
 
 ## Commands

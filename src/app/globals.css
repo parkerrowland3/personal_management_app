@@ -336,6 +336,10 @@ textarea {
   gap: 0.8rem;
 }
 
+.auth-form--nested {
+  padding-top: 0.1rem;
+}
+
 .auth-state {
   display: flex;
   flex-direction: column;

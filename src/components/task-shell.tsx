@@ -118,6 +118,8 @@ export function TaskShell() {
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_TASK);
   const [eventDraft, setEventDraft] = useState(EMPTY_EVENT_DRAFT);
   const [email, setEmail] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [isAwaitingEmailCode, setIsAwaitingEmailCode] = useState(false);
   const [search, setSearch] = useState("");
   const [activeDomain, setActiveDomain] = useState<Domain | "all">("all");
   const [feedName, setFeedName] = useState("");
@@ -402,6 +404,8 @@ export function TaskShell() {
       });
 
       if (nextSession?.user.id) {
+        setEmailCode("");
+        setIsAwaitingEmailCode(false);
         void loadTasks(nextSession.user.id);
         void loadCalendarStatus();
         void loadCalendarEvents();
@@ -424,6 +428,8 @@ export function TaskShell() {
         });
         setCalendarEvents([]);
         setCalendarFeeds([]);
+        setEmailCode("");
+        setIsAwaitingEmailCode(false);
         setNotice("Signed out. Demo mode data is shown until you sign in again.");
       }
     });
@@ -579,7 +585,7 @@ export function TaskShell() {
     return ((currentMinutes - timelineStartMinutes) / (timelineEndMinutes - timelineStartMinutes)) * 100;
   }, [now, timelineBounds.endHour, timelineBounds.startHour]);
 
-  async function sendMagicLink(event: FormEvent<HTMLFormElement>) {
+  async function sendEmailCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!supabase) {
@@ -590,16 +596,40 @@ export function TaskShell() {
     setIsSaving(true);
 
     const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo:
-          typeof window !== "undefined" ? window.location.origin : undefined
-      }
+      email
     });
 
     setNotice(
-      error ? error.message : `Magic link sent to ${email}. Open the email and come back here.`
+      error ? error.message : `A sign-in code was sent to ${email}. Enter it below to continue.`
     );
+    if (!error) {
+      setIsAwaitingEmailCode(true);
+      setEmailCode("");
+    }
+    setIsSaving(false);
+  }
+
+  async function verifyEmailCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase) {
+      setNotice("Supabase is not configured yet.");
+      return;
+    }
+
+    setIsSaving(true);
+
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: emailCode,
+      type: "email"
+    });
+
+    setNotice(error ? error.message : "Signed in.");
+    if (!error) {
+      setEmailCode("");
+      setIsAwaitingEmailCode(false);
+    }
     setIsSaving(false);
   }
 
@@ -1271,20 +1301,46 @@ export function TaskShell() {
                 </button>
               </div>
             ) : (
-              <form className="auth-form" onSubmit={sendMagicLink}>
-                <label>
-                  Email
-                  <input
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="you@example.com"
-                    type="email"
-                    value={email}
-                  />
-                </label>
-                <button className="primary-button" disabled={isSaving || !email} type="submit">
-                  {isSaving ? "Sending..." : "Send magic link"}
-                </button>
-              </form>
+              <div className="auth-form">
+                <form className="auth-form" onSubmit={sendEmailCode}>
+                  <label>
+                    Email
+                    <input
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        setIsAwaitingEmailCode(false);
+                        setEmailCode("");
+                      }}
+                      placeholder="you@example.com"
+                      type="email"
+                      value={email}
+                    />
+                  </label>
+                  <button className="primary-button" disabled={isSaving || !email} type="submit">
+                    {isSaving && !isAwaitingEmailCode ? "Sending..." : "Send code"}
+                  </button>
+                </form>
+                {isAwaitingEmailCode ? (
+                  <form className="auth-form auth-form--nested" onSubmit={verifyEmailCode}>
+                    <label>
+                      Email code
+                      <input
+                        inputMode="numeric"
+                        onChange={(event) => setEmailCode(event.target.value)}
+                        placeholder="123456"
+                        value={emailCode}
+                      />
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={isSaving || !emailCode.trim()}
+                      type="submit"
+                    >
+                      {isSaving ? "Verifying..." : "Verify code"}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
             )
           ) : (
             <p className="muted">
@@ -2225,6 +2281,18 @@ function formatEventDateLabel(event: CalendarEvent) {
 }
 
 function getTaskDueDateFromCalendarEvent(event: CalendarEvent) {
+  if (event.isAllDay) {
+    if (event.end) {
+      return getInclusiveAllDayDate(event.end);
+    }
+
+    if (event.start) {
+      return extractDateOnly(event.start);
+    }
+
+    return null;
+  }
+
   if (event.end) {
     return extractDateOnly(event.end);
   }
@@ -2242,6 +2310,12 @@ function extractDateOnly(value: string) {
   }
 
   return formatDateInputValue(new Date(value));
+}
+
+function getInclusiveAllDayDate(value: string) {
+  const date = parseEventDate(value);
+  date.setDate(date.getDate() - 1);
+  return formatDateInputValue(date);
 }
 
 function getNormalizedTaskStatus(
