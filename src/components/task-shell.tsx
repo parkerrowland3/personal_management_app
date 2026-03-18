@@ -129,6 +129,7 @@ export function TaskShell() {
   const [webSearch, setWebSearch] = useState("");
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured());
   const [isSaving, setIsSaving] = useState(false);
+  const [isTaskConversionBusy, setIsTaskConversionBusy] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
   const [isFeedBusy, setIsFeedBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<GoogleCalendarStatus>({
@@ -1019,6 +1020,67 @@ export function TaskShell() {
     setSelectedCalendarEvent(event);
   }
 
+  async function convertCalendarEventToTask() {
+    if (!selectedCalendarEvent) {
+      return;
+    }
+
+    const dueDate = getTaskDueDateFromCalendarEvent(selectedCalendarEvent);
+
+    if (!dueDate) {
+      setNotice("This event does not have an end date that can be converted into a task due date.");
+      return;
+    }
+
+    const nextDomain = selectedCalendarEvent.domain ?? "personal";
+    const nextStatus: TaskStatus = dueDate === todayKey ? "today" : "backlog";
+    const taskPayload = {
+      title: selectedCalendarEvent.summary.trim() || "Untitled event task",
+      description: selectedCalendarEvent.description?.trim() || null,
+      domain: nextDomain,
+      status: nextStatus,
+      priority: "medium" as const,
+      due_date: dueDate
+    };
+
+    setIsTaskConversionBusy(true);
+
+    if (!supabase || !session?.user.id) {
+      const nextTask: Task = {
+        id: crypto.randomUUID(),
+        ...taskPayload
+      };
+      const nextTasks = sortTasks([nextTask, ...tasks]);
+      setTasks(nextTasks);
+      setSelectedTaskId(nextTask.id);
+      setSelectedCalendarEvent(null);
+      setNotice("Event converted to a task in demo mode.");
+      setIsTaskConversionBusy(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        ...taskPayload,
+        user_id: session.user.id
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setNotice(error.message);
+      setIsTaskConversionBusy(false);
+      return;
+    }
+
+    setTasks((current) => sortTasks([data as Task, ...current]));
+    setSelectedTaskId(data.id);
+    setSelectedCalendarEvent(null);
+    setNotice("Event converted to a task.");
+    setIsTaskConversionBusy(false);
+  }
+
   async function addCalendarFeed(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -1886,6 +1948,14 @@ export function TaskShell() {
               <strong>Source</strong>
               <span>{selectedCalendarEvent.sourceName ?? selectedCalendarEvent.source}</span>
             </div>
+            <button
+              className="primary-button"
+              disabled={isTaskConversionBusy}
+              onClick={() => void convertCalendarEventToTask()}
+              type="button"
+            >
+              {isTaskConversionBusy ? "Converting..." : "Convert to task"}
+            </button>
             {selectedCalendarEvent.description ? (
               <div className="event-detail__section">
                 <strong>Description</strong>
@@ -2152,6 +2222,26 @@ function formatEventDateLabel(event: CalendarEvent) {
     month: "short",
     day: "numeric"
   }).format(parseEventDate(event.start));
+}
+
+function getTaskDueDateFromCalendarEvent(event: CalendarEvent) {
+  if (event.end) {
+    return extractDateOnly(event.end);
+  }
+
+  if (event.start) {
+    return extractDateOnly(event.start);
+  }
+
+  return null;
+}
+
+function extractDateOnly(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  return formatDateInputValue(new Date(value));
 }
 
 function getNormalizedTaskStatus(
