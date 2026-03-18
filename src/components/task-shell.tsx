@@ -113,6 +113,7 @@ export function TaskShell() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(sampleTasks[0]?.id ?? null);
   const [selectedFeed, setSelectedFeed] = useState<CalendarFeed | null>(null);
   const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarEvent | null>(null);
+  const [isAddTaskOverlayOpen, setIsAddTaskOverlayOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
   const [isArchiveOverlayOpen, setIsArchiveOverlayOpen] = useState(false);
@@ -165,6 +166,7 @@ export function TaskShell() {
   const supabase = getSupabaseBrowserClient();
 
   const anyOverlayOpen =
+    isAddTaskOverlayOpen ||
     isDetailOpen ||
     isEventOverlayOpen ||
     isArchiveOverlayOpen ||
@@ -322,6 +324,7 @@ export function TaskShell() {
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        setIsAddTaskOverlayOpen(false);
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
         setIsArchiveOverlayOpen(false);
@@ -468,6 +471,7 @@ export function TaskShell() {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
         setSelectedFeed(null);
+        setIsAddTaskOverlayOpen(false);
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
         setIsArchiveOverlayOpen(false);
@@ -725,6 +729,7 @@ export function TaskShell() {
       const nextTasks = sortTasks([nextTask, ...tasks]);
       setTasks(nextTasks);
       setSelectedTaskId(nextTask.id);
+      setIsAddTaskOverlayOpen(false);
       setIsDetailOpen(false);
       setDraft(EMPTY_TASK);
       setNotice("Task added in demo mode.");
@@ -758,6 +763,7 @@ export function TaskShell() {
     const nextTasks = sortTasks([data as Task, ...tasks]);
     setTasks(nextTasks);
     setSelectedTaskId(data.id);
+    setIsAddTaskOverlayOpen(false);
     setIsDetailOpen(false);
     setDraft(EMPTY_TASK);
     setNotice("Task created.");
@@ -1599,6 +1605,9 @@ export function TaskShell() {
           </div>
 
           <div className="workspace__actions">
+            <button className="secondary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+              Add task
+            </button>
             <form className="web-search" onSubmit={handleWebSearchSubmit}>
               <div className="web-search__field">
                 <input
@@ -1657,99 +1666,6 @@ export function TaskShell() {
         </header>
 
         {notice ? <div className="notice">{notice}</div> : null}
-
-        <section className="composer panel">
-          <div className="panel__header">
-            <h2>Quick capture</h2>
-          </div>
-          <form className="composer__form" onSubmit={createTask}>
-            <input
-              onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-              placeholder="Write a task title"
-              value={draft.title}
-            />
-            <textarea
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, description: event.target.value }))
-              }
-              placeholder="Add context, notes, or next actions"
-              rows={3}
-              value={draft.description ?? ""}
-            />
-            <div className="composer__grid">
-              <label>
-                Space
-                <select
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      domain: event.target.value as Domain
-                    }))
-                  }
-                  value={draft.domain}
-                >
-                  {DOMAIN_OPTIONS.map((domain) => (
-                    <option key={domain} value={domain}>
-                      {domainLabels[domain]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Status
-                <select
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      status: event.target.value as TaskStatus
-                    }))
-                  }
-                  value={draft.status}
-                >
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {statusLabels[status]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Priority
-                <select
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      priority: event.target.value as TaskPriority
-                    }))
-                  }
-                  value={draft.priority}
-                >
-                  {PRIORITY_OPTIONS.map((priority) => (
-                    <option key={priority} value={priority}>
-                      {priorityLabels[priority]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Due date
-                <input
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      due_date: event.target.value || null
-                    }))
-                  }
-                  type="date"
-                  value={draft.due_date ?? ""}
-                />
-              </label>
-            </div>
-            <button className="primary-button" disabled={isSaving || isLoading} type="submit">
-              {isSaving ? "Saving..." : "Add task"}
-            </button>
-          </form>
-        </section>
 
         <section className="board">
           {groupedTasks.map(({ status, tasks: statusTasks }) => (
@@ -1966,6 +1882,98 @@ export function TaskShell() {
           </div>
         </section>
       </section>
+
+      {isAddTaskOverlayOpen ? (
+        <Overlay onClose={() => setIsAddTaskOverlayOpen(false)} title="Add task" variant="center">
+          <form className="detail__content" onSubmit={createTask}>
+            <input
+              onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+              placeholder="Write a task title"
+              value={draft.title}
+            />
+            <textarea
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, description: event.target.value }))
+              }
+              placeholder="Add context, notes, or next actions"
+              rows={5}
+              value={draft.description ?? ""}
+            />
+            <div className="composer__grid">
+              <label>
+                Space
+                <select
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      domain: event.target.value as Domain
+                    }))
+                  }
+                  value={draft.domain}
+                >
+                  {DOMAIN_OPTIONS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domainLabels[domain]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Status
+                <select
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      status: event.target.value as TaskStatus
+                    }))
+                  }
+                  value={draft.status}
+                >
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {statusLabels[status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Priority
+                <select
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      priority: event.target.value as TaskPriority
+                    }))
+                  }
+                  value={draft.priority}
+                >
+                  {PRIORITY_OPTIONS.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priorityLabels[priority]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Due date
+                <input
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      due_date: event.target.value || null
+                    }))
+                  }
+                  type="date"
+                  value={draft.due_date ?? ""}
+                />
+              </label>
+            </div>
+            <button className="primary-button" disabled={isSaving || isLoading} type="submit">
+              {isSaving ? "Saving..." : "Add task"}
+            </button>
+          </form>
+        </Overlay>
+      ) : null}
 
       {isDetailOpen ? (
         <Overlay onClose={() => setIsDetailOpen(false)} title="Task detail" variant="center">
