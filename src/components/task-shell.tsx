@@ -1608,54 +1608,6 @@ export function TaskShell() {
             <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
               Add task
             </button>
-            <form className="web-search" onSubmit={handleWebSearchSubmit}>
-              <div className="web-search__field">
-                <input
-                  className="web-search__input"
-                  aria-autocomplete="list"
-                  aria-label="Search the web"
-                  autoComplete="off"
-                  onChange={(event) => setWebSearch(event.target.value)}
-                  onBlur={() => {
-                    window.setTimeout(() => {
-                      setIsWebSearchFocused(false);
-                    }, 120);
-                  }}
-                  onFocus={() => setIsWebSearchFocused(true)}
-                  onKeyDown={handleWebSearchKeyDown}
-                  placeholder="Search the web with DuckDuckGo"
-                  spellCheck={false}
-                  type="text"
-                  value={webSearch}
-                />
-                {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
-                  <div className="web-search__suggestions" role="listbox">
-                    {isWebSearchLoading ? (
-                      <div className="web-search__suggestion web-search__suggestion--status">
-                        Loading suggestions...
-                      </div>
-                    ) : (
-                      webSearchSuggestions.map((suggestion, index) => (
-                        <button
-                          className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
-                          key={suggestion}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            submitWebSearch(suggestion);
-                          }}
-                          type="button"
-                        >
-                          {suggestion}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                ) : null}
-              </div>
-              <button className="primary-button" disabled={!webSearch.trim()} type="submit">
-                Search
-              </button>
-            </form>
             <input
               className="search-input"
               onChange={(event) => setSearch(event.target.value)}
@@ -1664,6 +1616,57 @@ export function TaskShell() {
             />
           </div>
         </header>
+
+        <div className="workspace__search-row">
+          <form className="web-search" onSubmit={handleWebSearchSubmit}>
+            <div className="web-search__field">
+              <input
+                className="web-search__input"
+                aria-autocomplete="list"
+                aria-label="Search the web"
+                autoComplete="off"
+                onChange={(event) => setWebSearch(event.target.value)}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    setIsWebSearchFocused(false);
+                  }, 120);
+                }}
+                onFocus={() => setIsWebSearchFocused(true)}
+                onKeyDown={handleWebSearchKeyDown}
+                placeholder="Search the web with DuckDuckGo"
+                spellCheck={false}
+                type="text"
+                value={webSearch}
+              />
+              {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
+                <div className="web-search__suggestions" role="listbox">
+                  {isWebSearchLoading ? (
+                    <div className="web-search__suggestion web-search__suggestion--status">
+                      Loading suggestions...
+                    </div>
+                  ) : (
+                    webSearchSuggestions.map((suggestion, index) => (
+                      <button
+                        className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
+                        key={suggestion}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          submitWebSearch(suggestion);
+                        }}
+                        type="button"
+                      >
+                        {suggestion}
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <button className="primary-button" disabled={!webSearch.trim()} type="submit">
+              Search
+            </button>
+          </form>
+        </div>
 
         {notice ? <div className="notice">{notice}</div> : null}
 
