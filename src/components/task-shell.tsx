@@ -2012,18 +2012,20 @@ export function TaskShell() {
           </p>
         </div>
 
-        <div className="sidebar__scroll scroll-fade scroll-fade-shell">
-          <section className="panel">
-            <div className="panel__header">
-              <h2>Spaces</h2>
-            </div>
-            {renderSpaceFilters()}
-          </section>
+        <div className="scroll-shell">
+          <div className="sidebar__scroll scroll-fade">
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Spaces</h2>
+              </div>
+              {renderSpaceFilters()}
+            </section>
 
-          {renderAccountPanel()}
-          {renderGoogleCalendarPanel()}
-          {renderArchivePanel()}
-          {renderFeedPanel()}
+            {renderAccountPanel()}
+            {renderGoogleCalendarPanel()}
+            {renderArchivePanel()}
+            {renderFeedPanel()}
+          </div>
         </div>
       </aside>
 
@@ -2055,242 +2057,244 @@ export function TaskShell() {
           {notice ? <div className="notice">{notice}</div> : null}
         </div>
 
-        <div className="workspace__content scroll-fade scroll-fade-shell">
-          <section className="board">
-            {groupedTasks.map(({ status, tasks: statusTasks }) => (
-              <article
-                className={`board-column panel ${dragOverStatus === status ? "board-column--drag-over" : ""}`}
-                key={status}
-                onDragLeave={() => handleColumnDragLeave(status)}
-                onDragOver={(event) => handleColumnDragOver(event, status)}
-                onDrop={(event) => void handleColumnDrop(event, status)}
-              >
-                <div className="panel__header">
-                  <h2>{statusLabels[status]}</h2>
-                  <span className="count-pill">{statusTasks.length}</span>
-                </div>
-                <div className="task-list scroll-fade">
-                  {statusTasks.map((task) => (
-                    <button
-                      className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${draggedTaskId === task.id ? "task-card--dragging" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
-                      draggable
-                      onDragEnd={handleTaskDragEnd}
-                      onDragStart={(event) => handleTaskDragStart(event, task.id)}
-                      key={task.id}
-                      onClick={() => {
-                        setSelectedTaskId(task.id);
-                        setIsDetailOpen(true);
-                      }}
-                      style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
-                      type="button"
-                    >
-                      <div className="task-card__meta">
-                        <span className={`domain-pill domain-pill--${task.domain}`}>
-                          {domainLabels[task.domain]}
-                        </span>
-                        <span className={`priority-pill priority-pill--${task.priority}`}>
-                          {priorityLabels[task.priority]}
-                        </span>
-                      </div>
-                      <h3>{task.title}</h3>
-                      {task.description ? <p className="task-card__description">{task.description}</p> : null}
-                      <div className="task-card__footer">
-                        <span>{statusLabels[task.status]}</span>
-                        <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
-                      </div>
-                    </button>
-                  ))}
-                  {!statusTasks.length ? (
-                    <div className="empty-state">
-                      <p>No tasks here yet.</p>
-                    </div>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </section>
-
-          <section className="panel calendar-panel">
-            <div className="calendar-panel__top">
-              <div className="panel__header">
-                <h2>Calendar</h2>
-                <span className="count-pill">{visibleCalendarEvents.length}</span>
-              </div>
-
-              <div className="calendar-panel__actions">
-                <button
-                  className="secondary-button"
-                  disabled={!calendarStatus.connected}
-                  onClick={() => setIsEventOverlayOpen(true)}
-                  type="button"
+        <div className="scroll-shell">
+          <div className="workspace__content scroll-fade">
+            <section className="board">
+              {groupedTasks.map(({ status, tasks: statusTasks }) => (
+                <article
+                  className={`board-column panel ${dragOverStatus === status ? "board-column--drag-over" : ""}`}
+                  key={status}
+                  onDragLeave={() => handleColumnDragLeave(status)}
+                  onDragOver={(event) => handleColumnDragOver(event, status)}
+                  onDrop={(event) => void handleColumnDrop(event, status)}
                 >
-                  New calendar event
-                </button>
-              </div>
-            </div>
-
-            <div className="calendar-panel__body">
-              <div className="calendar-grid">
-                <section className="calendar-card">
-                  <div className="calendar-card__header">
-                    <div>
-                      <p className="eyebrow">Today</p>
-                      <h3>{formatDayHeading(new Date())}</h3>
-                    </div>
+                  <div className="panel__header">
+                    <h2>{statusLabels[status]}</h2>
+                    <span className="count-pill">{statusTasks.length}</span>
                   </div>
-
-                  <div className="calendar-card__body">
-                    {!session ? (
-                      <div className="empty-state">
-                        <p>Sign in to load your calendar.</p>
-                      </div>
-                    ) : !hasCalendarSources ? (
-                      <div className="empty-state">
-                        <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
-                      </div>
-                    ) : (
-                      <div className="today-view">
-                        {todayAllDayEvents.length ? (
-                          <div className="all-day-strip">
-                            <span className="all-day-strip__label">All day</span>
-                            <div className="all-day-strip__items">
-                              {todayAllDayEvents.map((event) => (
-                                <button
-                                  className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
-                                  key={event.id}
-                                  onClick={() => openCalendarEventDetail(event)}
-                                  style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
-                                  type="button"
-                                >
-                                  <span>{event.summary}</span>
-                                  <small>{event.sourceName ?? event.source}</small>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-
-                        <div className="timeline">
-                          <div className="timeline__hours">
-                            {timelineHours.map((hour) => (
-                              <div className="timeline-row__hour" key={hour}>
-                                {formatHour(hour)}
-                              </div>
-                            ))}
-                          </div>
-                          <div className="timeline__body">
-                            {timelineHours.map((hour) => (
-                              <div className="timeline-slot" key={hour}>
-                                <div className="timeline-slot__quarter timeline-slot__quarter--quarter" />
-                                <div className="timeline-slot__quarter timeline-slot__quarter--half" />
-                                <div className="timeline-slot__quarter timeline-slot__quarter--three-quarters" />
-                              </div>
-                            ))}
-
-                            {nowLineOffset !== null ? (
-                              <div
-                                className="timeline-now-line"
-                                style={{
-                                  top: `${nowLineOffset}%`
-                                }}
-                              >
-                                <span className="timeline-now-line__label">{formatNow(now)}</span>
-                                <span className="timeline-now-line__rule" />
-                              </div>
-                            ) : null}
-
-                            {timelineEventLayouts.length ? (
-                              <div className="timeline__events">
-                                {timelineEventLayouts.map(
-                                  ({ event, topPercent, heightPercent, column, totalColumns }) => (
-                                    <button
-                                      className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
-                                      key={event.id}
-                                      onClick={() => openCalendarEventDetail(event)}
-                                      style={{
-                                        ...getTimelineEventStyle(
-                                          topPercent,
-                                          heightPercent,
-                                          column,
-                                          totalColumns
-                                        ),
-                                        viewTransitionName: `event-${toViewTransitionToken(event.id)}`
-                                      }}
-                                      type="button"
-                                    >
-                                      <div className="timeline-event__header">
-                                        <h4>{event.summary}</h4>
-                                        <span>{formatEventTimeRange(event)}</span>
-                                      </div>
-                                      <p>{event.sourceName ?? event.source}</p>
-                                    </button>
-                                  )
-                                )}
-                              </div>
-                            ) : (
-                              <div className="timeline-row__empty timeline-row__empty--full" />
-                            )}
-                          </div>
+                  <div className="task-list scroll-fade">
+                    {statusTasks.map((task) => (
+                      <button
+                        className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${draggedTaskId === task.id ? "task-card--dragging" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
+                        draggable
+                        onDragEnd={handleTaskDragEnd}
+                        onDragStart={(event) => handleTaskDragStart(event, task.id)}
+                        key={task.id}
+                        onClick={() => {
+                          setSelectedTaskId(task.id);
+                          setIsDetailOpen(true);
+                        }}
+                        style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
+                        type="button"
+                      >
+                        <div className="task-card__meta">
+                          <span className={`domain-pill domain-pill--${task.domain}`}>
+                            {domainLabels[task.domain]}
+                          </span>
+                          <span className={`priority-pill priority-pill--${task.priority}`}>
+                            {priorityLabels[task.priority]}
+                          </span>
                         </div>
+                        <h3>{task.title}</h3>
+                        {task.description ? <p className="task-card__description">{task.description}</p> : null}
+                        <div className="task-card__footer">
+                          <span>{statusLabels[task.status]}</span>
+                          <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
+                        </div>
+                      </button>
+                    ))}
+                    {!statusTasks.length ? (
+                      <div className="empty-state">
+                        <p>No tasks here yet.</p>
                       </div>
-                    )}
+                    ) : null}
                   </div>
-                </section>
+                </article>
+              ))}
+            </section>
 
-                <section className="calendar-card">
-                  <div className="calendar-card__header">
-                    <div>
-                      <p className="eyebrow">Next 5 Days</p>
-                      <h3>Upcoming</h3>
+            <section className="panel calendar-panel">
+              <div className="calendar-panel__top">
+                <div className="panel__header">
+                  <h2>Calendar</h2>
+                  <span className="count-pill">{visibleCalendarEvents.length}</span>
+                </div>
+
+                <div className="calendar-panel__actions">
+                  <button
+                    className="secondary-button"
+                    disabled={!calendarStatus.connected}
+                    onClick={() => setIsEventOverlayOpen(true)}
+                    type="button"
+                  >
+                    New calendar event
+                  </button>
+                </div>
+              </div>
+
+              <div className="calendar-panel__body">
+                <div className="calendar-grid">
+                  <section className="calendar-card">
+                    <div className="calendar-card__header">
+                      <div>
+                        <p className="eyebrow">Today</p>
+                        <h3>{formatDayHeading(new Date())}</h3>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="calendar-card__body">
-                    {!session ? (
-                      <div className="empty-state">
-                        <p>Sign in to load your calendar.</p>
-                      </div>
-                    ) : !hasCalendarSources ? (
-                      <div className="empty-state">
-                        <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
-                      </div>
-                    ) : (
-                      <div className="future-days">
-                        {nextFiveDayBuckets.map((bucket) => (
-                          <section className="future-day" key={bucket.date.toISOString()}>
-                            <div className="future-day__header">
-                              <h4>{formatDayHeading(bucket.date)}</h4>
-                            </div>
-                            {bucket.events.length ? (
-                              <div className="future-day__events">
-                                {bucket.events.map((event) => (
+                    <div className="calendar-card__body">
+                      {!session ? (
+                        <div className="empty-state">
+                          <p>Sign in to load your calendar.</p>
+                        </div>
+                      ) : !hasCalendarSources ? (
+                        <div className="empty-state">
+                          <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+                        </div>
+                      ) : (
+                        <div className="today-view">
+                          {todayAllDayEvents.length ? (
+                            <div className="all-day-strip">
+                              <span className="all-day-strip__label">All day</span>
+                              <div className="all-day-strip__items">
+                                {todayAllDayEvents.map((event) => (
                                   <button
-                                    className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
+                                    className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
                                     key={event.id}
                                     onClick={() => openCalendarEventDetail(event)}
                                     style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
                                     type="button"
                                   >
-                                    <div>
-                                      <strong>{event.summary}</strong>
-                                      <p>{formatEventTimeRange(event)}</p>
-                                    </div>
+                                    <span>{event.summary}</span>
                                     <small>{event.sourceName ?? event.source}</small>
                                   </button>
                                 ))}
                               </div>
-                            ) : (
-                              <p className="muted">No events scheduled.</p>
-                            )}
-                          </section>
-                        ))}
+                            </div>
+                          ) : null}
+
+                          <div className="timeline">
+                            <div className="timeline__hours">
+                              {timelineHours.map((hour) => (
+                                <div className="timeline-row__hour" key={hour}>
+                                  {formatHour(hour)}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="timeline__body">
+                              {timelineHours.map((hour) => (
+                                <div className="timeline-slot" key={hour}>
+                                  <div className="timeline-slot__quarter timeline-slot__quarter--quarter" />
+                                  <div className="timeline-slot__quarter timeline-slot__quarter--half" />
+                                  <div className="timeline-slot__quarter timeline-slot__quarter--three-quarters" />
+                                </div>
+                              ))}
+
+                              {nowLineOffset !== null ? (
+                                <div
+                                  className="timeline-now-line"
+                                  style={{
+                                    top: `${nowLineOffset}%`
+                                  }}
+                                >
+                                  <span className="timeline-now-line__label">{formatNow(now)}</span>
+                                  <span className="timeline-now-line__rule" />
+                                </div>
+                              ) : null}
+
+                              {timelineEventLayouts.length ? (
+                                <div className="timeline__events">
+                                  {timelineEventLayouts.map(
+                                    ({ event, topPercent, heightPercent, column, totalColumns }) => (
+                                      <button
+                                        className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
+                                        key={event.id}
+                                        onClick={() => openCalendarEventDetail(event)}
+                                        style={{
+                                          ...getTimelineEventStyle(
+                                            topPercent,
+                                            heightPercent,
+                                            column,
+                                            totalColumns
+                                          ),
+                                          viewTransitionName: `event-${toViewTransitionToken(event.id)}`
+                                        }}
+                                        type="button"
+                                      >
+                                        <div className="timeline-event__header">
+                                          <h4>{event.summary}</h4>
+                                          <span>{formatEventTimeRange(event)}</span>
+                                        </div>
+                                        <p>{event.sourceName ?? event.source}</p>
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="timeline-row__empty timeline-row__empty--full" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="calendar-card">
+                    <div className="calendar-card__header">
+                      <div>
+                        <p className="eyebrow">Next 5 Days</p>
+                        <h3>Upcoming</h3>
                       </div>
-                    )}
-                  </div>
-                </section>
+                    </div>
+
+                    <div className="calendar-card__body">
+                      {!session ? (
+                        <div className="empty-state">
+                          <p>Sign in to load your calendar.</p>
+                        </div>
+                      ) : !hasCalendarSources ? (
+                        <div className="empty-state">
+                          <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+                        </div>
+                      ) : (
+                        <div className="future-days">
+                          {nextFiveDayBuckets.map((bucket) => (
+                            <section className="future-day" key={bucket.date.toISOString()}>
+                              <div className="future-day__header">
+                                <h4>{formatDayHeading(bucket.date)}</h4>
+                              </div>
+                              {bucket.events.length ? (
+                                <div className="future-day__events">
+                                  {bucket.events.map((event) => (
+                                    <button
+                                      className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
+                                      key={event.id}
+                                      onClick={() => openCalendarEventDetail(event)}
+                                      style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
+                                      type="button"
+                                    >
+                                      <div>
+                                        <strong>{event.summary}</strong>
+                                        <p>{formatEventTimeRange(event)}</p>
+                                      </div>
+                                      <small>{event.sourceName ?? event.source}</small>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="muted">No events scheduled.</p>
+                              )}
+                            </section>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
       </section>
 
