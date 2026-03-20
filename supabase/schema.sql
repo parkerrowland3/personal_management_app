@@ -38,6 +38,23 @@ alter table public.google_calendar_connections add column if not exists default_
 update public.google_calendar_connections set default_domain = 'personal' where default_domain is null;
 alter table public.google_calendar_connections alter column default_domain set default 'personal';
 
+create table if not exists public.google_chat_connections (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  google_email text,
+  chat_user_name text,
+  access_token text not null,
+  refresh_token text,
+  expires_at timestamptz,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.google_chat_connections add column if not exists google_email text;
+alter table public.google_chat_connections add column if not exists chat_user_name text;
+alter table public.google_chat_connections add column if not exists access_token text;
+alter table public.google_chat_connections add column if not exists refresh_token text;
+alter table public.google_chat_connections add column if not exists expires_at timestamptz;
+
 create table if not exists public.calendar_feeds (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -75,6 +92,12 @@ before update on public.google_calendar_connections
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists google_chat_connections_set_updated_at on public.google_chat_connections;
+create trigger google_chat_connections_set_updated_at
+before update on public.google_chat_connections
+for each row
+execute function public.set_updated_at();
+
 drop trigger if exists calendar_feeds_set_updated_at on public.calendar_feeds;
 create trigger calendar_feeds_set_updated_at
 before update on public.calendar_feeds
@@ -83,6 +106,7 @@ execute function public.set_updated_at();
 
 alter table public.tasks enable row level security;
 alter table public.google_calendar_connections enable row level security;
+alter table public.google_chat_connections enable row level security;
 alter table public.calendar_feeds enable row level security;
 
 drop policy if exists "Users can read their own tasks" on public.tasks;
@@ -135,6 +159,31 @@ on public.google_calendar_connections
 for delete
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can read their own chat connection" on public.google_chat_connections;
+create policy "Users can read their own chat connection"
+on public.google_chat_connections
+for select
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own chat connection" on public.google_chat_connections;
+create policy "Users can insert their own chat connection"
+on public.google_chat_connections
+for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own chat connection" on public.google_chat_connections;
+create policy "Users can update their own chat connection"
+on public.google_chat_connections
+for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own chat connection" on public.google_chat_connections;
+create policy "Users can delete their own chat connection"
+on public.google_chat_connections
+for delete
+using (auth.uid() = user_id);
+
 drop policy if exists "Users can read their own calendar feeds" on public.calendar_feeds;
 create policy "Users can read their own calendar feeds"
 on public.calendar_feeds
@@ -165,3 +214,4 @@ create index if not exists tasks_status_idx on public.tasks (status);
 create index if not exists tasks_domain_idx on public.tasks (domain);
 create index if not exists tasks_due_date_idx on public.tasks (due_date);
 create index if not exists calendar_feeds_user_id_idx on public.calendar_feeds (user_id);
+create index if not exists google_chat_connections_user_id_idx on public.google_chat_connections (user_id);

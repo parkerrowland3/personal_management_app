@@ -24,6 +24,9 @@ import {
   type CalendarFeed,
   type Domain,
   type GoogleCalendarStatus,
+  type GoogleChatMessage,
+  type GoogleChatSpace,
+  type GoogleChatStatus,
   type Task,
   type TaskDraft,
   type TaskPriority,
@@ -151,6 +154,7 @@ export function TaskShell() {
   const [isAddTaskOverlayOpen, setIsAddTaskOverlayOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
+  const [isChatOverlayOpen, setIsChatOverlayOpen] = useState(false);
   const [isArchiveOverlayOpen, setIsArchiveOverlayOpen] = useState(false);
   const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
   const [isFeedDetailOverlayOpen, setIsFeedDetailOverlayOpen] = useState(false);
@@ -177,6 +181,9 @@ export function TaskShell() {
   const [isSaving, setIsSaving] = useState(false);
   const [isTaskConversionBusy, setIsTaskConversionBusy] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
+  const [isChatBusy, setIsChatBusy] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isChatMessagesLoading, setIsChatMessagesLoading] = useState(false);
   const [isFeedBusy, setIsFeedBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<GoogleCalendarStatus>({
     configured: false,
@@ -185,8 +192,17 @@ export function TaskShell() {
     calendarId: null,
     defaultDomain: null
   });
+  const [chatStatus, setChatStatus] = useState<GoogleChatStatus>({
+    configured: false,
+    connected: false,
+    googleEmail: null
+  });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
+  const [chatSpaces, setChatSpaces] = useState<GoogleChatSpace[]>([]);
+  const [selectedChatSpaceName, setSelectedChatSpaceName] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<GoogleChatMessage[]>([]);
+  const [chatComposer, setChatComposer] = useState("");
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
   const [mobileSection, setMobileSection] = useState<MobileSection>("tasks");
@@ -206,6 +222,7 @@ export function TaskShell() {
     isAddTaskOverlayOpen ||
     isDetailOpen ||
     isEventOverlayOpen ||
+    isChatOverlayOpen ||
     isArchiveOverlayOpen ||
     isFeedOverlayOpen ||
     isFeedDetailOverlayOpen ||
@@ -267,6 +284,34 @@ export function TaskShell() {
     setCalendarStatus(payload);
   }, [getAccessToken]);
 
+  const loadChatStatus = useCallback(async () => {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setChatStatus({
+        configured: false,
+        connected: false,
+        googleEmail: null
+      });
+      return;
+    }
+
+    const response = await fetch("/api/google-chat/status", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setNotice(payload?.error ?? "Unable to load Google Chat status.");
+      return;
+    }
+
+    const payload = (await response.json()) as GoogleChatStatus;
+    setChatStatus(payload);
+  }, [getAccessToken]);
+
   const loadCalendarEvents = useCallback(async () => {
     const accessToken = await getAccessToken();
 
@@ -316,6 +361,85 @@ export function TaskShell() {
     setCalendarFeeds(payload.feeds);
   }, [getAccessToken]);
 
+  const loadChatSpaces = useCallback(
+    async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        setChatSpaces([]);
+        setSelectedChatSpaceName(null);
+        setIsChatLoading(false);
+        return;
+      }
+
+      if (showLoading) {
+        setIsChatLoading(true);
+      }
+
+      const response = await fetch("/api/google-chat/spaces", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setNotice(payload?.error ?? "Unable to load Google Chat spaces.");
+        setChatSpaces([]);
+        setSelectedChatSpaceName(null);
+        setIsChatLoading(false);
+        return;
+      }
+
+      const payload = (await response.json()) as { spaces: GoogleChatSpace[] };
+      setChatSpaces(payload.spaces);
+      setSelectedChatSpaceName((current) => {
+        if (current && payload.spaces.some((space) => space.name === current)) {
+          return current;
+        }
+
+        return payload.spaces.find((space) => space.unread)?.name ?? payload.spaces[0]?.name ?? null;
+      });
+      setIsChatLoading(false);
+    },
+    [getAccessToken]
+  );
+
+  const loadChatMessages = useCallback(
+    async (spaceName: string, { showLoading = true }: { showLoading?: boolean } = {}) => {
+      const accessToken = await getAccessToken();
+
+      if (!accessToken || !spaceName) {
+        setChatMessages([]);
+        setIsChatMessagesLoading(false);
+        return;
+      }
+
+      if (showLoading) {
+        setIsChatMessagesLoading(true);
+      }
+
+      const response = await fetch(`/api/google-chat/messages?space=${encodeURIComponent(spaceName)}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setNotice(payload?.error ?? "Unable to load Google Chat messages.");
+        setChatMessages([]);
+        setIsChatMessagesLoading(false);
+        return;
+      }
+
+      const payload = (await response.json()) as { messages: GoogleChatMessage[] };
+      setChatMessages(payload.messages);
+      setIsChatMessagesLoading(false);
+    },
+    [getAccessToken]
+  );
+
   const loadTasks = useCallback(
     async (userId: string) => {
       if (!supabase) {
@@ -348,28 +472,42 @@ export function TaskShell() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get("calendar");
-    const error = params.get("calendar_error");
+    const calendarConnected = params.get("calendar");
+    const calendarError = params.get("calendar_error");
+    const chatConnected = params.get("chat");
+    const chatError = params.get("chat_error");
 
-    if (!connected && !error) {
+    if (!calendarConnected && !calendarError && !chatConnected && !chatError) {
       return;
     }
 
-    if (connected === "connected") {
+    if (calendarConnected === "connected") {
       setNotice("Google Calendar connected.");
       void loadCalendarStatus();
       void loadCalendarEvents();
     }
 
-    if (error) {
-      setNotice(`Google Calendar error: ${error}`);
+    if (calendarError) {
+      setNotice(`Google Calendar error: ${calendarError}`);
+    }
+
+    if (chatConnected === "connected") {
+      setNotice("Google Chat connected.");
+      void loadChatStatus();
+      void loadChatSpaces();
+    }
+
+    if (chatError) {
+      setNotice(`Google Chat error: ${chatError}`);
     }
 
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.delete("calendar");
     nextUrl.searchParams.delete("calendar_error");
+    nextUrl.searchParams.delete("chat");
+    nextUrl.searchParams.delete("chat_error");
     window.history.replaceState({}, "", nextUrl.toString());
-  }, [loadCalendarEvents, loadCalendarStatus]);
+  }, [loadCalendarEvents, loadCalendarStatus, loadChatSpaces, loadChatStatus]);
 
   useEffect(() => {
     if (!anyOverlayOpen) {
@@ -381,6 +519,7 @@ export function TaskShell() {
         setIsAddTaskOverlayOpen(false);
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
+        setIsChatOverlayOpen(false);
         setIsArchiveOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
@@ -502,6 +641,7 @@ export function TaskShell() {
         void loadCalendarStatus();
         void loadCalendarEvents();
         void loadCalendarFeeds();
+        void loadChatStatus();
       }
 
       setIsLoading(false);
@@ -521,6 +661,7 @@ export function TaskShell() {
         void loadCalendarStatus();
         void loadCalendarEvents();
         void loadCalendarFeeds();
+        void loadChatStatus();
       } else {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
@@ -528,6 +669,7 @@ export function TaskShell() {
         setIsAddTaskOverlayOpen(false);
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
+        setIsChatOverlayOpen(false);
         setIsArchiveOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
@@ -539,8 +681,17 @@ export function TaskShell() {
           calendarId: null,
           defaultDomain: null
         });
+        setChatStatus({
+          configured: false,
+          connected: false,
+          googleEmail: null
+        });
         setCalendarEvents([]);
         setCalendarFeeds([]);
+        setChatSpaces([]);
+        setSelectedChatSpaceName(null);
+        setChatMessages([]);
+        setChatComposer("");
         setEmailCode("");
         setIsAwaitingEmailCode(false);
         setNotice("Signed out. Demo mode data is shown until you sign in again.");
@@ -551,7 +702,48 @@ export function TaskShell() {
       isMounted = false;
       authSubscription.data.subscription.unsubscribe();
     };
-  }, [loadCalendarEvents, loadCalendarFeeds, loadCalendarStatus, loadTasks, supabase]);
+  }, [
+    loadCalendarEvents,
+    loadCalendarFeeds,
+    loadCalendarStatus,
+    loadChatStatus,
+    loadTasks,
+    supabase
+  ]);
+
+  useEffect(() => {
+    if (!session?.user.id || !chatStatus.connected || activeDomain !== "work") {
+      return;
+    }
+
+    void loadChatSpaces({ showLoading: chatSpaces.length === 0 });
+
+    const interval = window.setInterval(() => {
+      void loadChatSpaces({ showLoading: false });
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, [activeDomain, chatSpaces.length, chatStatus.connected, loadChatSpaces, session?.user.id]);
+
+  useEffect(() => {
+    if (!isChatOverlayOpen || !chatStatus.connected || !selectedChatSpaceName) {
+      return;
+    }
+
+    void loadChatMessages(selectedChatSpaceName, { showLoading: chatMessages.length === 0 });
+
+    const interval = window.setInterval(() => {
+      void loadChatMessages(selectedChatSpaceName, { showLoading: false });
+    }, 25_000);
+
+    return () => window.clearInterval(interval);
+  }, [
+    chatMessages.length,
+    chatStatus.connected,
+    isChatOverlayOpen,
+    loadChatMessages,
+    selectedChatSpaceName
+  ]);
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -567,6 +759,18 @@ export function TaskShell() {
     () => tasks.filter((task) => !isArchivedTask(task, now)),
     [now, tasks]
   );
+
+  const selectedChatSpace = useMemo(
+    () => chatSpaces.find((space) => space.name === selectedChatSpaceName) ?? null,
+    [chatSpaces, selectedChatSpaceName]
+  );
+
+  const unreadChatCount = useMemo(
+    () => chatSpaces.filter((space) => space.unread).length,
+    [chatSpaces]
+  );
+
+  const hasUnreadChatSpaces = unreadChatCount > 0;
 
   useEffect(() => {
     const tasksToPromote = tasks.filter((task) => shouldAutoMoveTaskToToday(task, todayKey));
@@ -1057,6 +1261,217 @@ export function TaskShell() {
     setNotice("Google Calendar disconnected.");
     setIsCalendarBusy(false);
   }
+
+  async function connectGoogleChat() {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before connecting Google Chat.");
+      return;
+    }
+
+    setIsChatBusy(true);
+
+    const response = await fetch("/api/google-chat/connect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; url?: string }
+      | null;
+
+    if (!response.ok || !payload?.url) {
+      setNotice(payload?.error ?? "Unable to start Google Chat connection.");
+      setIsChatBusy(false);
+      return;
+    }
+
+    window.location.href = payload.url;
+  }
+
+  async function disconnectGoogleChat() {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before disconnecting Google Chat.");
+      return;
+    }
+
+    setIsChatBusy(true);
+
+    const response = await fetch("/api/google-chat/disconnect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setNotice(payload?.error ?? "Unable to disconnect Google Chat.");
+      setIsChatBusy(false);
+      return;
+    }
+
+    setChatStatus({
+      configured: true,
+      connected: false,
+      googleEmail: null
+    });
+    setChatSpaces([]);
+    setSelectedChatSpaceName(null);
+    setChatMessages([]);
+    setChatComposer("");
+    setIsChatOverlayOpen(false);
+    setNotice("Google Chat disconnected.");
+    setIsChatBusy(false);
+  }
+
+  const markChatSpaceAsRead = useCallback(
+    async (space: GoogleChatSpace) => {
+      if (!space.unread || !space.lastActiveTime) {
+        return;
+      }
+
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        return;
+      }
+
+      const response = await fetch("/api/google-chat/read-state", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          spaceName: space.name,
+          lastReadTime: space.lastActiveTime
+        })
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as
+        | { lastReadTime?: string }
+        | null;
+
+      setChatSpaces((current) =>
+        sortChatSpaces(
+          current.map((item) =>
+            item.name === space.name
+              ? {
+                  ...item,
+                  unread: false,
+                  lastReadTime: payload?.lastReadTime ?? space.lastActiveTime
+                }
+              : item
+          )
+        )
+      );
+    },
+    [getAccessToken]
+  );
+
+  async function openChatOverlay() {
+    setIsChatOverlayOpen(true);
+
+    if (!chatStatus.connected) {
+      return;
+    }
+
+    await loadChatSpaces({ showLoading: chatSpaces.length === 0 });
+  }
+
+  async function selectChatSpace(space: GoogleChatSpace) {
+    setSelectedChatSpaceName(space.name);
+    await loadChatMessages(space.name);
+    void markChatSpaceAsRead(space);
+  }
+
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedChatSpace) {
+      setNotice("Select a Google Chat space first.");
+      return;
+    }
+
+    const text = chatComposer.trim();
+
+    if (!text) {
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before sending a Google Chat message.");
+      return;
+    }
+
+    setIsChatBusy(true);
+
+    const response = await fetch("/api/google-chat/messages", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        spaceName: selectedChatSpace.name,
+        text
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: string;
+          message?: GoogleChatMessage;
+        }
+      | null;
+
+    if (!response.ok || !payload?.message) {
+      setNotice(payload?.error ?? "Unable to send the Google Chat message.");
+      setIsChatBusy(false);
+      return;
+    }
+
+    setChatMessages((current) => [...current, payload.message!]);
+    setChatComposer("");
+    setChatSpaces((current) =>
+      sortChatSpaces(
+        current.map((space) =>
+          space.name === selectedChatSpace.name
+            ? {
+                ...space,
+                unread: false,
+                lastReadTime: payload.message?.createTime ?? space.lastReadTime,
+                lastActiveTime: payload.message?.createTime ?? space.lastActiveTime,
+                previewText: payload.message?.text ?? space.previewText
+              }
+            : space
+        )
+      )
+    );
+    setNotice("Google Chat message sent.");
+    setIsChatBusy(false);
+  }
+
+  useEffect(() => {
+    if (!isChatOverlayOpen || !selectedChatSpace?.unread) {
+      return;
+    }
+
+    void markChatSpaceAsRead(selectedChatSpace);
+  }, [isChatOverlayOpen, markChatSpaceAsRead, selectedChatSpace]);
 
   async function syncSelectedTaskToCalendar() {
     if (!selectedTask) {
@@ -1701,6 +2116,89 @@ export function TaskShell() {
     );
   }
 
+  function renderGoogleChatPanel() {
+    return (
+      <section className="panel panel--soft">
+        <div className="panel__header">
+          <h2>Google Chat</h2>
+        </div>
+        {!session ? (
+          <p className="muted">Sign in to connect Google Chat for the Work space.</p>
+        ) : !chatStatus.configured ? (
+          <p className="muted">
+            Add dedicated Google Chat OAuth env vars to enable the Work chat overlay.
+          </p>
+        ) : chatStatus.connected ? (
+          <div className="stack-actions">
+            <p className="muted">
+              Connected to {chatStatus.googleEmail ?? "your Workspace account"}.
+            </p>
+            <p className="muted">
+              This account is stored separately from the Google Calendar connection.
+            </p>
+            <div className="stack-actions stack-actions--inline">
+              <button
+                className="secondary-button"
+                disabled={isChatBusy}
+                onClick={() => void openChatOverlay()}
+                type="button"
+              >
+                Open Work chat
+              </button>
+              <button
+                className="secondary-button"
+                disabled={isChatBusy}
+                onClick={() => void disconnectGoogleChat()}
+                type="button"
+              >
+                {isChatBusy ? "Working..." : "Disconnect"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="stack-actions">
+            <p className="muted">
+              Connect a separate Workspace Google account to read and send messages from the Work space.
+            </p>
+            <button
+              className="secondary-button"
+              disabled={isChatBusy}
+              onClick={() => void connectGoogleChat()}
+              type="button"
+            >
+              {isChatBusy ? "Working..." : "Connect Google Chat"}
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderWorkChatTrigger(className?: string) {
+    if (activeDomain !== "work") {
+      return null;
+    }
+
+    return (
+      <button
+        aria-label={
+          hasUnreadChatSpaces
+            ? `Open Work chat. ${unreadChatCount} conversation${unreadChatCount === 1 ? "" : "s"} unread.`
+            : "Open Work chat"
+        }
+        className={`secondary-button work-chat-trigger ${hasUnreadChatSpaces ? "work-chat-trigger--unread" : ""} ${className ?? ""}`.trim()}
+        onClick={() => void openChatOverlay()}
+        type="button"
+      >
+        <span className="work-chat-trigger__icon" aria-hidden="true">
+          <span className="work-chat-trigger__glyph" />
+          {hasUnreadChatSpaces ? <span className="work-chat-trigger__badge" /> : null}
+        </span>
+        <span>Work chat</span>
+      </button>
+    );
+  }
+
   function renderArchivePanel() {
     return (
       <section className="panel">
@@ -1751,6 +2249,9 @@ export function TaskShell() {
           <div className="mobile-space-strip" aria-label="Spaces" role="group">
             {renderSpaceFilters()}
           </div>
+          {activeDomain === "work" ? (
+            <div className="mobile-hero__actions">{renderWorkChatTrigger("work-chat-trigger--mobile")}</div>
+          ) : null}
         </header>
 
         {notice ? <div className="notice">{notice}</div> : null}
@@ -1984,6 +2485,7 @@ export function TaskShell() {
 
           {renderAccountPanel()}
           {renderGoogleCalendarPanel()}
+          {renderGoogleChatPanel()}
           {renderArchivePanel()}
           {renderFeedPanel()}
         </section>
@@ -2023,6 +2525,7 @@ export function TaskShell() {
 
             {renderAccountPanel()}
             {renderGoogleCalendarPanel()}
+            {renderGoogleChatPanel()}
             {renderArchivePanel()}
             {renderFeedPanel()}
           </div>
@@ -2048,6 +2551,7 @@ export function TaskShell() {
                 placeholder="Filter tasks"
                 value={search}
               />
+              {renderWorkChatTrigger()}
               <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
                 Add task
               </button>
@@ -2597,6 +3101,145 @@ export function TaskShell() {
         </Overlay>
       ) : null}
 
+      {isChatOverlayOpen ? (
+        <Overlay onClose={() => setIsChatOverlayOpen(false)} title="Work chat" variant="wide">
+          {!session ? (
+            <div className="empty-state empty-state--detail">
+              <p>Sign in to open the Work chat overlay.</p>
+            </div>
+          ) : !chatStatus.configured ? (
+            <div className="empty-state empty-state--detail">
+              <p>Add the dedicated Google Chat OAuth env vars to enable this workspace.</p>
+            </div>
+          ) : !chatStatus.connected ? (
+            <div className="empty-state empty-state--detail">
+              <div className="chat-overlay__empty">
+                <p>Connect a separate Workspace Google account to use Work chat.</p>
+                <button
+                  className="primary-button"
+                  disabled={isChatBusy}
+                  onClick={() => void connectGoogleChat()}
+                  type="button"
+                >
+                  {isChatBusy ? "Connecting..." : "Connect Google Chat"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="chat-overlay">
+              <aside className="chat-space-panel">
+                <div className="chat-space-panel__header">
+                  <div>
+                    <p className="eyebrow">Workspace account</p>
+                    <h3>{chatStatus.googleEmail ?? "Google Chat"}</h3>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    disabled={isChatLoading || isChatBusy}
+                    onClick={() => void loadChatSpaces()}
+                    type="button"
+                  >
+                    {isChatLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+
+                <div className="chat-space-list">
+                  {chatSpaces.length ? (
+                    chatSpaces.map((space) => (
+                      <button
+                        className={`chat-space-item ${selectedChatSpaceName === space.name ? "chat-space-item--active" : ""}`}
+                        key={space.name}
+                        onClick={() => void selectChatSpace(space)}
+                        type="button"
+                      >
+                        <div className="chat-space-item__top">
+                          <strong>{space.displayName}</strong>
+                          <span>{formatChatActivityTime(space.lastActiveTime)}</span>
+                        </div>
+                        <p>{space.previewText ?? getChatSpaceTypeLabel(space.spaceType)}</p>
+                        {space.unread ? (
+                          <span className="chat-space-item__badge">Unread</span>
+                        ) : null}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="empty-state">
+                      <p>{isChatLoading ? "Loading spaces..." : "No Chat spaces found yet."}</p>
+                    </div>
+                  )}
+                </div>
+              </aside>
+
+              <section className="chat-thread">
+                {selectedChatSpace ? (
+                  <>
+                    <div className="chat-thread__header">
+                      <div>
+                        <p className="eyebrow">{getChatSpaceTypeLabel(selectedChatSpace.spaceType)}</p>
+                        <h3>{selectedChatSpace.displayName}</h3>
+                      </div>
+                      <span className="chat-thread__meta">
+                        {formatChatActivityTime(selectedChatSpace.lastActiveTime)}
+                      </span>
+                    </div>
+
+                    <div className="chat-thread__messages">
+                      {chatMessages.length ? (
+                        chatMessages.map((message) => (
+                          <article
+                            className={`chat-message ${message.isSelf ? "chat-message--self" : ""}`}
+                            key={message.name}
+                          >
+                            <div className="chat-message__meta">
+                              <strong>{message.senderLabel}</strong>
+                              <span>{formatChatMessageTime(message.createTime)}</span>
+                            </div>
+                            <div className="chat-message__bubble">
+                              <p>{message.text}</p>
+                            </div>
+                          </article>
+                        ))
+                      ) : (
+                        <div className="empty-state chat-thread__empty">
+                          <p>
+                            {isChatMessagesLoading
+                              ? "Loading conversation..."
+                              : "No recent messages in this space."}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <form className="chat-composer" onSubmit={sendChatMessage}>
+                      <label className="chat-composer__field">
+                        <span>Message</span>
+                        <textarea
+                          onChange={(event) => setChatComposer(event.target.value)}
+                          placeholder={`Message ${selectedChatSpace.displayName}`}
+                          rows={3}
+                          value={chatComposer}
+                        />
+                      </label>
+                      <button
+                        className="primary-button"
+                        disabled={isChatBusy || !chatComposer.trim()}
+                        type="submit"
+                      >
+                        {isChatBusy ? "Sending..." : "Send"}
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <div className="empty-state empty-state--detail">
+                    <p>Select a conversation to view messages.</p>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+        </Overlay>
+      ) : null}
+
       {selectedCalendarEvent ? (
         <Overlay
           onClose={() => setSelectedCalendarEvent(null)}
@@ -2843,13 +3486,13 @@ function Overlay({
   children: ReactNode;
   onClose: () => void;
   title: string;
-  variant?: "side" | "center";
+  variant?: "side" | "center" | "wide";
 }) {
   return (
     <div className="detail-overlay" onClick={onClose} role="presentation">
       <aside
         aria-label={title}
-        className={`detail-modal panel ${variant === "center" ? "detail-modal--center" : ""}`}
+        className={`detail-modal panel ${variant === "center" ? "detail-modal--center" : ""} ${variant === "wide" ? "detail-modal--wide" : ""}`.trim()}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="panel__header">
@@ -2862,6 +3505,65 @@ function Overlay({
       </aside>
     </div>
   );
+}
+
+function getChatTimestampValue(value: string | null | undefined) {
+  if (!value) {
+    return 0;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortChatSpaces(spaces: GoogleChatSpace[]) {
+  return [...spaces].sort((left, right) => {
+    if (left.unread !== right.unread) {
+      return left.unread ? -1 : 1;
+    }
+
+    return getChatTimestampValue(right.lastActiveTime) - getChatTimestampValue(left.lastActiveTime);
+  });
+}
+
+function getChatSpaceTypeLabel(spaceType: GoogleChatSpace["spaceType"]) {
+  switch (spaceType) {
+    case "DIRECT_MESSAGE":
+      return "Direct message";
+    case "GROUP_CHAT":
+      return "Group chat";
+    default:
+      return "Space";
+  }
+}
+
+function formatChatActivityTime(value: string | null) {
+  if (!value) {
+    return "No activity";
+  }
+
+  const date = new Date(value);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  return new Intl.DateTimeFormat("en-US", sameDay ? { hour: "numeric", minute: "2-digit" } : {
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
+function formatChatMessageTime(value: string | null) {
+  if (!value) {
+    return "Unknown time";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function startOfDay(value: Date) {

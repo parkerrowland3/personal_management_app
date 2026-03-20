@@ -36,6 +36,35 @@ export type GoogleCalendarStatus = {
   defaultDomain: Domain | null;
 };
 
+export type GoogleChatStatus = {
+  configured: boolean;
+  connected: boolean;
+  googleEmail: string | null;
+};
+
+export type GoogleChatSpaceType = "SPACE" | "GROUP_CHAT" | "DIRECT_MESSAGE";
+
+export type GoogleChatSpace = {
+  name: string;
+  displayName: string;
+  spaceType: GoogleChatSpaceType;
+  lastActiveTime: string | null;
+  lastReadTime: string | null;
+  unread: boolean;
+  previewText: string | null;
+};
+
+export type GoogleChatMessage = {
+  name: string;
+  text: string;
+  createTime: string | null;
+  senderName: string | null;
+  senderType: string | null;
+  senderLabel: string;
+  isSelf: boolean;
+  threadName: string | null;
+};
+
 export type CalendarEvent = {
   id: string;
   summary: string;
