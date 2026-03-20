@@ -55,6 +55,21 @@ alter table public.google_chat_connections add column if not exists access_token
 alter table public.google_chat_connections add column if not exists refresh_token text;
 alter table public.google_chat_connections add column if not exists expires_at timestamptz;
 
+create table if not exists public.google_chat_aliases (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  target_type text not null check (target_type in ('space', 'sender')),
+  target_name text not null check (char_length(trim(target_name)) > 0),
+  label text not null check (char_length(trim(label)) > 0),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  unique (user_id, target_type, target_name)
+);
+
+alter table public.google_chat_aliases add column if not exists target_type text;
+alter table public.google_chat_aliases add column if not exists target_name text;
+alter table public.google_chat_aliases add column if not exists label text;
+
 create table if not exists public.calendar_feeds (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -98,6 +113,12 @@ before update on public.google_chat_connections
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists google_chat_aliases_set_updated_at on public.google_chat_aliases;
+create trigger google_chat_aliases_set_updated_at
+before update on public.google_chat_aliases
+for each row
+execute function public.set_updated_at();
+
 drop trigger if exists calendar_feeds_set_updated_at on public.calendar_feeds;
 create trigger calendar_feeds_set_updated_at
 before update on public.calendar_feeds
@@ -107,6 +128,7 @@ execute function public.set_updated_at();
 alter table public.tasks enable row level security;
 alter table public.google_calendar_connections enable row level security;
 alter table public.google_chat_connections enable row level security;
+alter table public.google_chat_aliases enable row level security;
 alter table public.calendar_feeds enable row level security;
 
 drop policy if exists "Users can read their own tasks" on public.tasks;
@@ -184,6 +206,31 @@ on public.google_chat_connections
 for delete
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can read their own chat aliases" on public.google_chat_aliases;
+create policy "Users can read their own chat aliases"
+on public.google_chat_aliases
+for select
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own chat aliases" on public.google_chat_aliases;
+create policy "Users can insert their own chat aliases"
+on public.google_chat_aliases
+for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own chat aliases" on public.google_chat_aliases;
+create policy "Users can update their own chat aliases"
+on public.google_chat_aliases
+for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own chat aliases" on public.google_chat_aliases;
+create policy "Users can delete their own chat aliases"
+on public.google_chat_aliases
+for delete
+using (auth.uid() = user_id);
+
 drop policy if exists "Users can read their own calendar feeds" on public.calendar_feeds;
 create policy "Users can read their own calendar feeds"
 on public.calendar_feeds
@@ -215,3 +262,5 @@ create index if not exists tasks_domain_idx on public.tasks (domain);
 create index if not exists tasks_due_date_idx on public.tasks (due_date);
 create index if not exists calendar_feeds_user_id_idx on public.calendar_feeds (user_id);
 create index if not exists google_chat_connections_user_id_idx on public.google_chat_connections (user_id);
+create index if not exists google_chat_aliases_user_id_idx on public.google_chat_aliases (user_id);
+create index if not exists google_chat_aliases_target_lookup_idx on public.google_chat_aliases (user_id, target_type, target_name);

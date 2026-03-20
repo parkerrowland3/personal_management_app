@@ -26,13 +26,26 @@ function getTimestampValue(value: string | null | undefined) {
 }
 
 async function resolveDirectMessageDisplayNames(
+  supabase: ReturnType<typeof getSupabaseAdminClient>,
   accessToken: string,
+  userId: string,
   spaces: Array<{ name: string; spaceType?: string }>,
   selfUserName: string | null
 ) {
   const directMessages = spaces.filter((space) => space.spaceType === "DIRECT_MESSAGE");
+  const { data: aliases } = await supabase
+    .from("google_chat_aliases")
+    .select("target_name, label")
+    .eq("user_id", userId)
+    .eq("target_type", "space")
+    .in("target_name", spaces.length ? spaces.map((space) => space.name) : [""]);
+
+  const aliasMap = Object.fromEntries(
+    (aliases ?? []).map((alias) => [alias.target_name as string, alias.label as string])
+  );
+  const unresolvedDirectMessages = directMessages.filter((space) => !aliasMap[space.name]);
   const dmUserNames = await Promise.all(
-    directMessages.map(async (space) => {
+    unresolvedDirectMessages.map(async (space) => {
       try {
         const members = await listGoogleChatSpaceMembers(accessToken, space.name);
         const otherHumanMember = members.find(
@@ -54,17 +67,20 @@ async function resolveDirectMessageDisplayNames(
     dmUserNames.map((entry) => entry[1]).filter((value): value is string => Boolean(value))
   ).catch(() => ({} as Record<string, string>));
 
-  return Object.fromEntries(
-    dmUserNames
-      .map(([spaceName, userName]) => {
-        if (!userName || !displayNames[userName]) {
-          return null;
-        }
+  return {
+    ...Object.fromEntries(
+      dmUserNames
+        .map(([spaceName, userName]) => {
+          if (!userName || !displayNames[userName]) {
+            return null;
+          }
 
-        return [spaceName, displayNames[userName]] as const;
-      })
-      .filter((entry): entry is readonly [string, string] => Boolean(entry))
-  );
+          return [spaceName, displayNames[userName]] as const;
+        })
+        .filter((entry): entry is readonly [string, string] => Boolean(entry))
+    ),
+    ...aliasMap
+  };
 }
 
 export async function GET(request: Request) {
@@ -142,7 +158,9 @@ export async function GET(request: Request) {
     }
 
     const directMessageDisplayNames = await resolveDirectMessageDisplayNames(
+      supabase,
       refreshed.accessToken,
+      user.id,
       sortedSpaces,
       chatUserName ?? null
     );

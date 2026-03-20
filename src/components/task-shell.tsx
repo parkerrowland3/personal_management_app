@@ -6,6 +6,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -24,6 +25,7 @@ import {
   type CalendarFeed,
   type Domain,
   type GoogleCalendarStatus,
+  type GoogleChatAliasTargetType,
   type GoogleChatMessage,
   type GoogleChatSpace,
   type GoogleChatStatus,
@@ -85,6 +87,14 @@ type TimelineEventLayout = {
   heightPercent: number;
   column: number;
   totalColumns: number;
+};
+
+type ChatAliasEditorState = {
+  targetType: GoogleChatAliasTargetType;
+  targetName: string;
+  title: string;
+  helper: string;
+  draftLabel: string;
 };
 
 const MOBILE_SECTIONS: Array<{ id: MobileSection; label: string }> = [
@@ -155,6 +165,7 @@ export function TaskShell() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEventOverlayOpen, setIsEventOverlayOpen] = useState(false);
   const [isChatOverlayOpen, setIsChatOverlayOpen] = useState(false);
+  const [chatAliasEditor, setChatAliasEditor] = useState<ChatAliasEditorState | null>(null);
   const [isArchiveOverlayOpen, setIsArchiveOverlayOpen] = useState(false);
   const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
   const [isFeedDetailOverlayOpen, setIsFeedDetailOverlayOpen] = useState(false);
@@ -182,6 +193,7 @@ export function TaskShell() {
   const [isTaskConversionBusy, setIsTaskConversionBusy] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
   const [isChatBusy, setIsChatBusy] = useState(false);
+  const [isChatAliasBusy, setIsChatAliasBusy] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isChatMessagesLoading, setIsChatMessagesLoading] = useState(false);
   const [isFeedBusy, setIsFeedBusy] = useState(false);
@@ -213,6 +225,7 @@ export function TaskShell() {
       ? null
       : "Demo mode is active. Add your Supabase URL and anon key to connect live data."
   );
+  const chatMessagesRef = useRef<HTMLDivElement | null>(null);
 
   const deferredSearch = useDeferredValue(search);
   const todayKey = useMemo(() => formatDateInputValue(now), [now]);
@@ -223,6 +236,7 @@ export function TaskShell() {
     isDetailOpen ||
     isEventOverlayOpen ||
     isChatOverlayOpen ||
+    chatAliasEditor !== null ||
     isArchiveOverlayOpen ||
     isFeedOverlayOpen ||
     isFeedDetailOverlayOpen ||
@@ -520,6 +534,7 @@ export function TaskShell() {
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
         setIsChatOverlayOpen(false);
+        setChatAliasEditor(null);
         setIsArchiveOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
@@ -670,6 +685,7 @@ export function TaskShell() {
         setIsDetailOpen(false);
         setIsEventOverlayOpen(false);
         setIsChatOverlayOpen(false);
+        setChatAliasEditor(null);
         setIsArchiveOverlayOpen(false);
         setIsFeedOverlayOpen(false);
         setIsFeedDetailOverlayOpen(false);
@@ -771,6 +787,24 @@ export function TaskShell() {
   );
 
   const hasUnreadChatSpaces = unreadChatCount > 0;
+
+  useEffect(() => {
+    if (!isChatOverlayOpen || !selectedChatSpaceName || !chatMessages.length) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const container = chatMessagesRef.current;
+
+      if (!container) {
+        return;
+      }
+
+      container.scrollTop = container.scrollHeight;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatMessages.length, isChatOverlayOpen, selectedChatSpaceName]);
 
   useEffect(() => {
     const tasksToPromote = tasks.filter((task) => shouldAutoMoveTaskToToday(task, todayKey));
@@ -1327,6 +1361,7 @@ export function TaskShell() {
     setChatMessages([]);
     setChatComposer("");
     setIsChatOverlayOpen(false);
+    setChatAliasEditor(null);
     setNotice("Google Chat disconnected.");
     setIsChatBusy(false);
   }
@@ -1394,6 +1429,128 @@ export function TaskShell() {
     setSelectedChatSpaceName(space.name);
     await loadChatMessages(space.name);
     void markChatSpaceAsRead(space);
+  }
+
+  function openChatSpaceAliasEditor(space: GoogleChatSpace) {
+    setChatAliasEditor({
+      targetType: "space",
+      targetName: space.name,
+      title: "Label chat",
+      helper: "Save a custom label for this conversation when Google can't provide a useful name.",
+      draftLabel: space.displayName
+    });
+  }
+
+  function openChatSenderAliasEditor(message: GoogleChatMessage) {
+    if (!message.senderName || message.isSelf) {
+      return;
+    }
+
+    setChatAliasEditor({
+      targetType: "sender",
+      targetName: message.senderName,
+      title: "Label participant",
+      helper: "Save a custom name for this sender so future messages are easier to scan.",
+      draftLabel: message.senderLabel
+    });
+  }
+
+  async function saveChatAlias(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!chatAliasEditor) {
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before editing chat labels.");
+      return;
+    }
+
+    setIsChatAliasBusy(true);
+
+    const response = await fetch("/api/google-chat/aliases", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        targetType: chatAliasEditor.targetType,
+        targetName: chatAliasEditor.targetName,
+        label: chatAliasEditor.draftLabel
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; label?: string | null }
+      | null;
+
+    if (!response.ok) {
+      setNotice(payload?.error ?? "Unable to save the chat label.");
+      setIsChatAliasBusy(false);
+      return;
+    }
+
+    await loadChatSpaces({ showLoading: false });
+
+    if (selectedChatSpaceName) {
+      await loadChatMessages(selectedChatSpaceName, { showLoading: false });
+    }
+
+    setChatAliasEditor(null);
+    setNotice(
+      chatAliasEditor.targetType === "space" ? "Chat label saved." : "Participant label saved."
+    );
+    setIsChatAliasBusy(false);
+  }
+
+  async function clearChatAlias() {
+    if (!chatAliasEditor) {
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before editing chat labels.");
+      return;
+    }
+
+    setIsChatAliasBusy(true);
+
+    const response = await fetch("/api/google-chat/aliases", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        targetType: chatAliasEditor.targetType,
+        targetName: chatAliasEditor.targetName,
+        label: ""
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setNotice(payload?.error ?? "Unable to reset the chat label.");
+      setIsChatAliasBusy(false);
+      return;
+    }
+
+    await loadChatSpaces({ showLoading: false });
+
+    if (selectedChatSpaceName) {
+      await loadChatMessages(selectedChatSpaceName, { showLoading: false });
+    }
+
+    setChatAliasEditor(null);
+    setNotice("Custom chat label cleared.");
+    setIsChatAliasBusy(false);
   }
 
   async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
@@ -3178,12 +3335,22 @@ export function TaskShell() {
                         <p className="eyebrow">{getChatSpaceTypeLabel(selectedChatSpace.spaceType)}</p>
                         <h3>{selectedChatSpace.displayName}</h3>
                       </div>
-                      <span className="chat-thread__meta">
-                        {formatChatActivityTime(selectedChatSpace.lastActiveTime)}
-                      </span>
+                      <div className="chat-thread__header-actions">
+                        <span className="chat-thread__meta">
+                          {formatChatActivityTime(selectedChatSpace.lastActiveTime)}
+                        </span>
+                        <button
+                          className="secondary-button chat-thread__label-button"
+                          onClick={() => openChatSpaceAliasEditor(selectedChatSpace)}
+                          title="Assign a custom label to this conversation"
+                          type="button"
+                        >
+                          Label chat
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="chat-thread__messages">
+                    <div className="chat-thread__messages" ref={chatMessagesRef}>
                       {chatMessages.length ? (
                         chatMessages.map((message) => (
                           <article
@@ -3191,7 +3358,18 @@ export function TaskShell() {
                             key={message.name}
                           >
                             <div className="chat-message__meta">
-                              <strong>{message.senderLabel}</strong>
+                              {message.senderName && !message.isSelf ? (
+                                <button
+                                  className="chat-message__author-button"
+                                  onClick={() => openChatSenderAliasEditor(message)}
+                                  title="Assign a custom label to this sender"
+                                  type="button"
+                                >
+                                  {message.senderLabel}
+                                </button>
+                              ) : (
+                                <strong>{message.senderLabel}</strong>
+                              )}
                               <span>{formatChatMessageTime(message.createTime)}</span>
                             </div>
                             <div className="chat-message__bubble">
@@ -3237,6 +3415,41 @@ export function TaskShell() {
               </section>
             </div>
           )}
+        </Overlay>
+      ) : null}
+
+      {chatAliasEditor ? (
+        <Overlay onClose={() => setChatAliasEditor(null)} title={chatAliasEditor.title} variant="center">
+          <form className="detail__content" onSubmit={saveChatAlias}>
+            <p className="muted">{chatAliasEditor.helper}</p>
+            <label>
+              Custom label
+              <input
+                onChange={(event) =>
+                  setChatAliasEditor((current) =>
+                    current ? { ...current, draftLabel: event.target.value } : current
+                  )
+                }
+                placeholder="Enter a name you recognize"
+                value={chatAliasEditor.draftLabel}
+              />
+            </label>
+            <button
+              className="primary-button"
+              disabled={isChatAliasBusy || !chatAliasEditor.draftLabel.trim()}
+              type="submit"
+            >
+              {isChatAliasBusy ? "Saving..." : "Save label"}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={isChatAliasBusy}
+              onClick={() => void clearChatAlias()}
+              type="button"
+            >
+              {isChatAliasBusy ? "Working..." : "Reset to automatic"}
+            </button>
+          </form>
         </Overlay>
       ) : null}
 

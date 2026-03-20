@@ -42,6 +42,14 @@ export type GoogleChatStatus = {
   googleEmail: string | null;
 };
 
+export type GoogleChatAliasTargetType = "space" | "sender";
+
+export type GoogleChatAlias = {
+  targetType: GoogleChatAliasTargetType;
+  targetName: string;
+  label: string;
+};
+
 export type GoogleChatSpaceType = "SPACE" | "GROUP_CHAT" | "DIRECT_MESSAGE";
 
 export type GoogleChatSpace = {

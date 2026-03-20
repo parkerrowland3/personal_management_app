@@ -41,7 +41,9 @@ function getSenderLabel(
 }
 
 async function resolveSenderDisplayNames(
+  supabase: ReturnType<typeof getSupabaseAdminClient>,
   accessToken: string,
+  userId: string,
   messages: GoogleChatMessageRecord[]
 ) {
   const senderNames = Array.from(
@@ -52,7 +54,30 @@ async function resolveSenderDisplayNames(
     )
   );
 
-  return resolveGoogleUserDisplayNames(accessToken, senderNames);
+  if (!senderNames.length) {
+    return {};
+  }
+
+  const { data: aliases } = await supabase
+    .from("google_chat_aliases")
+    .select("target_name, label")
+    .eq("user_id", userId)
+    .eq("target_type", "sender")
+    .in("target_name", senderNames.length ? senderNames : [""]);
+
+  const aliasMap = Object.fromEntries(
+    (aliases ?? []).map((alias) => [alias.target_name as string, alias.label as string])
+  );
+
+  const unresolvedSenderNames = senderNames.filter((senderName) => !aliasMap[senderName]);
+  const resolvedNames = unresolvedSenderNames.length
+    ? await resolveGoogleUserDisplayNames(accessToken, unresolvedSenderNames)
+    : {};
+
+  return {
+    ...resolvedNames,
+    ...aliasMap
+  };
 }
 
 function normalizeMessage(
@@ -180,7 +205,12 @@ export async function GET(request: Request) {
       listGoogleChatMessages(connection.accessToken, spaceName)
     ]);
 
-    const senderDisplayNames = await resolveSenderDisplayNames(connection.accessToken, rawMessages);
+    const senderDisplayNames = await resolveSenderDisplayNames(
+      connection.supabase,
+      connection.accessToken,
+      user.id,
+      rawMessages
+    );
     const messages = rawMessages.reverse().map((message) =>
       normalizeMessage(message, selfUserName, senderDisplayNames)
     );
@@ -231,7 +261,12 @@ export async function POST(request: Request) {
 
     const createdMessage = await createGoogleChatMessage(connection.accessToken, spaceName, trimmedText);
     const selfUserName = (await connection.resolveSelfUserName(spaceName)) ?? createdMessage.sender?.name ?? null;
-    const senderDisplayNames = await resolveSenderDisplayNames(connection.accessToken, [createdMessage]);
+    const senderDisplayNames = await resolveSenderDisplayNames(
+      connection.supabase,
+      connection.accessToken,
+      user.id,
+      [createdMessage]
+    );
 
     return NextResponse.json({
       message: normalizeMessage(

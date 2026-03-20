@@ -876,6 +876,13 @@ label {
   font-size: 1.12rem;
 }
 
+.chat-thread__header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
 .chat-space-list,
 .chat-thread__messages {
   display: flex;
@@ -955,6 +962,10 @@ label {
   font-size: 0.84rem;
 }
 
+.chat-thread__label-button {
+  padding: 0.65rem 0.8rem;
+}
+
 .chat-thread__empty {
   min-height: 260px;
 }
@@ -976,6 +987,20 @@ label {
   gap: 0.75rem;
   font-size: 0.78rem;
   padding: 0 0.1rem;
+}
+
+.chat-message__author-button {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+
+.chat-message__author-button:hover {
+  text-decoration: underline;
 }
 
 .chat-message__bubble {
@@ -1903,7 +1928,8 @@ label {
   }
 
   .chat-space-item__top,
-  .chat-message__meta {
+  .chat-message__meta,
+  .chat-thread__header-actions {
     flex-direction: column;
     align-items: flex-start;
   }
