@@ -315,7 +315,7 @@ export async function listGoogleChatSpaces(accessToken: string) {
 export async function listGoogleChatMessages(accessToken: string, spaceName: string, pageSize = 40) {
   const url = new URL(`https://chat.googleapis.com/v1/${getChatSpacePath(spaceName)}/messages`);
   url.searchParams.set("pageSize", `${pageSize}`);
-  url.searchParams.set("orderBy", "DESC");
+  url.searchParams.set("orderBy", "createTime DESC");
 
   const payload = await googleChatFetch<{ messages?: GoogleChatMessageRecord[] }>(
     url,
