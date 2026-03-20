@@ -6,6 +6,7 @@ import {
   getGoogleChatMessageText,
   listGoogleChatMessages,
   resolveGoogleChatUserName,
+  resolveGoogleWorkspaceUserDisplayName,
   type GoogleChatConnectionRecord,
   type GoogleChatMessageRecord
 } from "@/lib/google-chat";
@@ -13,9 +14,17 @@ import { getAuthenticatedUserFromRequest } from "@/lib/server-auth";
 import { getSupabaseAdminClient, isServerSupabaseConfigured } from "@/lib/supabase-admin";
 import type { GoogleChatMessage } from "@/lib/types";
 
-function getSenderLabel(message: GoogleChatMessageRecord, isSelf: boolean) {
+function getSenderLabel(
+  message: GoogleChatMessageRecord,
+  isSelf: boolean,
+  resolvedSenderName: string | null
+) {
   if (isSelf) {
     return "You";
+  }
+
+  if (resolvedSenderName) {
+    return resolvedSenderName;
   }
 
   const explicitLabel = message.sender?.displayName?.trim();
@@ -31,8 +40,43 @@ function getSenderLabel(message: GoogleChatMessageRecord, isSelf: boolean) {
   return "Teammate";
 }
 
-function normalizeMessage(message: GoogleChatMessageRecord, selfUserName: string | null) {
+async function resolveSenderDisplayNames(
+  accessToken: string,
+  messages: GoogleChatMessageRecord[]
+) {
+  const senderNames = Array.from(
+    new Set(
+      messages
+        .map((message) => message.sender?.name ?? null)
+        .filter((senderName): senderName is string => Boolean(senderName?.startsWith("users/")))
+    )
+  );
+
+  const resolvedEntries = await Promise.all(
+    senderNames.map(async (senderName) => {
+      try {
+        const displayName = await resolveGoogleWorkspaceUserDisplayName(accessToken, senderName);
+        return [senderName, displayName] as const;
+      } catch {
+        return [senderName, null] as const;
+      }
+    })
+  );
+
+  return Object.fromEntries(
+    resolvedEntries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+  );
+}
+
+function normalizeMessage(
+  message: GoogleChatMessageRecord,
+  selfUserName: string | null,
+  senderDisplayNames: Record<string, string>
+) {
   const isSelf = Boolean(selfUserName && message.sender?.name === selfUserName);
+  const resolvedSenderName = message.sender?.name
+    ? senderDisplayNames[message.sender.name] ?? null
+    : null;
 
   return {
     name: message.name,
@@ -40,7 +84,7 @@ function normalizeMessage(message: GoogleChatMessageRecord, selfUserName: string
     createTime: message.createTime ?? null,
     senderName: message.sender?.name ?? null,
     senderType: message.sender?.type ?? null,
-    senderLabel: getSenderLabel(message, isSelf),
+    senderLabel: getSenderLabel(message, isSelf, resolvedSenderName),
     isSelf,
     threadName: message.thread?.name ?? null
   } satisfies GoogleChatMessage;
@@ -149,7 +193,10 @@ export async function GET(request: Request) {
       listGoogleChatMessages(connection.accessToken, spaceName)
     ]);
 
-    const messages = rawMessages.reverse().map((message) => normalizeMessage(message, selfUserName));
+    const senderDisplayNames = await resolveSenderDisplayNames(connection.accessToken, rawMessages);
+    const messages = rawMessages.reverse().map((message) =>
+      normalizeMessage(message, selfUserName, senderDisplayNames)
+    );
 
     return NextResponse.json({ messages });
   } catch (caughtError) {
@@ -197,6 +244,7 @@ export async function POST(request: Request) {
 
     const createdMessage = await createGoogleChatMessage(connection.accessToken, spaceName, trimmedText);
     const selfUserName = (await connection.resolveSelfUserName(spaceName)) ?? createdMessage.sender?.name ?? null;
+    const senderDisplayNames = await resolveSenderDisplayNames(connection.accessToken, [createdMessage]);
 
     return NextResponse.json({
       message: normalizeMessage(
@@ -207,7 +255,8 @@ export async function POST(request: Request) {
             name: createdMessage.sender?.name ?? selfUserName ?? undefined
           }
         },
-        selfUserName
+        selfUserName,
+        senderDisplayNames
       )
     });
   } catch (caughtError) {

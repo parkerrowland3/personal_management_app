@@ -6,8 +6,10 @@ import {
   getGoogleChatSpaceDisplayName,
   getGoogleChatSpaceReadState,
   listGoogleChatMessages,
+  listGoogleChatSpaceMembers,
   listGoogleChatSpaces,
   resolveGoogleChatUserName,
+  resolveGoogleWorkspaceUserDisplayName,
   type GoogleChatConnectionRecord
 } from "@/lib/google-chat";
 import { getAuthenticatedUserFromRequest } from "@/lib/server-auth";
@@ -21,6 +23,54 @@ function getTimestampValue(value: string | null | undefined) {
 
   const next = new Date(value).getTime();
   return Number.isFinite(next) ? next : 0;
+}
+
+async function resolveDirectMessageDisplayNames(
+  accessToken: string,
+  spaces: Array<{ name: string; spaceType?: string }>,
+  selfUserName: string | null
+) {
+  const directMessages = spaces.filter((space) => space.spaceType === "DIRECT_MESSAGE");
+  const userNameCache = new Map<string, string | null>();
+
+  const resolvedEntries = await Promise.all(
+    directMessages.map(async (space) => {
+      try {
+        const members = await listGoogleChatSpaceMembers(accessToken, space.name);
+        const otherHumanMember = members.find(
+          (member) =>
+            member.member?.type === "HUMAN" &&
+            member.member?.name &&
+            member.member.name !== selfUserName
+        );
+
+        const otherUserName = otherHumanMember?.member?.name ?? null;
+
+        if (!otherUserName) {
+          return [space.name, null] as const;
+        }
+
+        if (!userNameCache.has(otherUserName)) {
+          try {
+            userNameCache.set(
+              otherUserName,
+              await resolveGoogleWorkspaceUserDisplayName(accessToken, otherUserName)
+            );
+          } catch {
+            userNameCache.set(otherUserName, null);
+          }
+        }
+
+        return [space.name, userNameCache.get(otherUserName) ?? null] as const;
+      } catch {
+        return [space.name, null] as const;
+      }
+    })
+  );
+
+  return Object.fromEntries(
+    resolvedEntries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+  );
 }
 
 export async function GET(request: Request) {
@@ -97,6 +147,12 @@ export async function GET(request: Request) {
         .eq("user_id", user.id);
     }
 
+    const directMessageDisplayNames = await resolveDirectMessageDisplayNames(
+      refreshed.accessToken,
+      sortedSpaces,
+      chatUserName ?? null
+    );
+
     const [readStates, previews] = await Promise.all([
       Promise.allSettled(
         sortedSpaces.map((space) => getGoogleChatSpaceReadState(refreshed.accessToken, space.name))
@@ -121,7 +177,8 @@ export async function GET(request: Request) {
 
         return {
           name: space.name,
-          displayName: getGoogleChatSpaceDisplayName(space),
+          displayName:
+            directMessageDisplayNames[space.name] ?? getGoogleChatSpaceDisplayName(space),
           spaceType: (space.spaceType as GoogleChatSpaceType) ?? "SPACE",
           lastActiveTime,
           lastReadTime,

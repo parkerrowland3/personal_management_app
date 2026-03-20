@@ -762,7 +762,12 @@ label {
 
 .detail-modal--wide {
   width: min(1040px, 100%);
+  height: min(78vh, 760px);
+  max-height: min(78vh, 760px);
   margin: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .icon-button {
@@ -832,7 +837,9 @@ label {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 1rem;
-  min-height: min(72vh, 720px);
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
 }
 
 .chat-space-panel,
@@ -840,6 +847,7 @@ label {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: color-mix(in srgb, var(--panel-strong) 88%, transparent);
@@ -1870,6 +1878,8 @@ label {
 
   .detail-modal--wide {
     width: 100%;
+    height: auto;
+    max-height: 100%;
     margin: 0;
   }
 

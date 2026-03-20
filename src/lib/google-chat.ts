@@ -61,6 +61,20 @@ type GoogleChatMembershipRecord = {
   };
 };
 
+type GoogleChatMembershipListResponse = {
+  memberships?: GoogleChatMembershipRecord[];
+};
+
+type GoogleWorkspaceDirectoryUserRecord = {
+  primaryEmail?: string;
+  name?: {
+    displayName?: string;
+    fullName?: string;
+    givenName?: string;
+    familyName?: string;
+  };
+};
+
 export function isGoogleChatConfigured() {
   return Boolean(
     process.env.GOOGLE_CHAT_CLIENT_ID &&
@@ -99,6 +113,7 @@ function getChatScope() {
     "https://www.googleapis.com/auth/chat.messages",
     "https://www.googleapis.com/auth/chat.users.readstate",
     "https://www.googleapis.com/auth/chat.memberships.readonly",
+    "https://www.googleapis.com/auth/admin.directory.user.readonly",
     "https://www.googleapis.com/auth/userinfo.email"
   ].join(" ");
 }
@@ -327,6 +342,20 @@ export async function listGoogleChatMessages(accessToken: string, spaceName: str
   return payload.messages ?? [];
 }
 
+export async function listGoogleChatSpaceMembers(accessToken: string, spaceName: string) {
+  const url = new URL(`https://chat.googleapis.com/v1/${getChatSpacePath(spaceName)}/members`);
+  url.searchParams.set("pageSize", "20");
+
+  const payload = await googleChatFetch<GoogleChatMembershipListResponse>(
+    url,
+    accessToken,
+    undefined,
+    "Google Chat member fetch failed"
+  );
+
+  return payload.memberships ?? [];
+}
+
 export async function createGoogleChatMessage(
   accessToken: string,
   spaceName: string,
@@ -401,6 +430,37 @@ export async function resolveGoogleChatUserName(
   );
 
   return membership.member?.name ?? null;
+}
+
+export async function resolveGoogleWorkspaceUserDisplayName(
+  accessToken: string,
+  chatUserName: string | null
+) {
+  const normalizedUserName = chatUserName?.replace(/^users\//, "").trim();
+
+  if (!normalizedUserName || normalizedUserName === "app") {
+    return null;
+  }
+
+  const url = new URL(
+    `https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(normalizedUserName)}`
+  );
+  url.searchParams.set("projection", "BASIC");
+  url.searchParams.set("viewType", "domain_public");
+
+  const user = await googleChatFetch<GoogleWorkspaceDirectoryUserRecord>(
+    url,
+    accessToken,
+    undefined,
+    "Workspace user lookup failed"
+  );
+
+  return (
+    user.name?.displayName?.trim() ||
+    user.name?.fullName?.trim() ||
+    user.primaryEmail?.trim() ||
+    null
+  );
 }
 
 export function getGoogleChatSpaceDisplayName(space: GoogleChatSpaceRecord) {
