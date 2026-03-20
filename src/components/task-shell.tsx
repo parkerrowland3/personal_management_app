@@ -1451,7 +1451,7 @@ export function TaskShell() {
       targetName: message.senderName,
       title: "Label participant",
       helper: "Save a custom name for this sender so future messages are easier to scan.",
-      draftLabel: message.senderLabel
+      draftLabel: getDisplayedChatMessageSenderLabel(message, selectedChatSpace)
     });
   }
 
@@ -3352,31 +3352,38 @@ export function TaskShell() {
 
                     <div className="chat-thread__messages" ref={chatMessagesRef}>
                       {chatMessages.length ? (
-                        chatMessages.map((message) => (
-                          <article
-                            className={`chat-message ${message.isSelf ? "chat-message--self" : ""}`}
-                            key={message.name}
-                          >
-                            <div className="chat-message__meta">
-                              {message.senderName && !message.isSelf ? (
-                                <button
-                                  className="chat-message__author-button"
-                                  onClick={() => openChatSenderAliasEditor(message)}
-                                  title="Assign a custom label to this sender"
-                                  type="button"
-                                >
-                                  {message.senderLabel}
-                                </button>
-                              ) : (
-                                <strong>{message.senderLabel}</strong>
-                              )}
-                              <span>{formatChatMessageTime(message.createTime)}</span>
-                            </div>
-                            <div className="chat-message__bubble">
-                              <p>{message.text}</p>
-                            </div>
-                          </article>
-                        ))
+                        chatMessages.map((message) => {
+                          const displaySenderLabel = getDisplayedChatMessageSenderLabel(
+                            message,
+                            selectedChatSpace
+                          );
+
+                          return (
+                            <article
+                              className={`chat-message ${message.isSelf ? "chat-message--self" : ""}`}
+                              key={message.name}
+                            >
+                              <div className="chat-message__meta">
+                                {message.senderName && !message.isSelf ? (
+                                  <button
+                                    className="chat-message__author-button"
+                                    onClick={() => openChatSenderAliasEditor(message)}
+                                    title="Assign a custom label to this sender"
+                                    type="button"
+                                  >
+                                    {displaySenderLabel}
+                                  </button>
+                                ) : (
+                                  <strong>{displaySenderLabel}</strong>
+                                )}
+                                <span>{formatChatMessageTime(message.createTime)}</span>
+                              </div>
+                              <div className="chat-message__bubble">
+                                <p>{message.text}</p>
+                              </div>
+                            </article>
+                          );
+                        })
                       ) : (
                         <div className="empty-state chat-thread__empty">
                           <p>
@@ -3737,6 +3744,27 @@ function sortChatSpaces(spaces: GoogleChatSpace[]) {
 
     return getChatTimestampValue(right.lastActiveTime) - getChatTimestampValue(left.lastActiveTime);
   });
+}
+
+function getDisplayedChatMessageSenderLabel(
+  message: GoogleChatMessage,
+  selectedChatSpace: GoogleChatSpace | null
+) {
+  if (message.isSelf || message.senderLabel !== "Teammate") {
+    return message.senderLabel;
+  }
+
+  if (selectedChatSpace?.spaceType !== "DIRECT_MESSAGE") {
+    return message.senderLabel;
+  }
+
+  const spaceLabel = selectedChatSpace.displayName.trim();
+
+  if (!spaceLabel || spaceLabel.toLowerCase() === "direct message") {
+    return message.senderLabel;
+  }
+
+  return spaceLabel;
 }
 
 function getChatSpaceTypeLabel(spaceType: GoogleChatSpace["spaceType"]) {
