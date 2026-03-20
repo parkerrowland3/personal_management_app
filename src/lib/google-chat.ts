@@ -136,6 +136,7 @@ function getChatScope() {
     "https://www.googleapis.com/auth/chat.messages",
     "https://www.googleapis.com/auth/chat.users.readstate",
     "https://www.googleapis.com/auth/chat.memberships.readonly",
+    "https://www.googleapis.com/auth/directory.readonly",
     "https://www.googleapis.com/auth/admin.directory.user.readonly",
     "https://www.googleapis.com/auth/userinfo.email"
   ].join(" ");
@@ -524,6 +525,7 @@ export async function resolveGooglePeopleDisplayNames(
 
   const url = new URL("https://people.googleapis.com/v1/people:batchGet");
   url.searchParams.set("personFields", "names,emailAddresses");
+  url.searchParams.append("sources", "READ_SOURCE_TYPE_PROFILE");
 
   uniqueUserNames.forEach((chatUserName) => {
     url.searchParams.append("resourceNames", getPeopleResourceName(chatUserName));
