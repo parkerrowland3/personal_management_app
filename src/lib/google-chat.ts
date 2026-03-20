@@ -75,6 +75,29 @@ type GoogleWorkspaceDirectoryUserRecord = {
   };
 };
 
+type GooglePeoplePersonRecord = {
+  resourceName?: string;
+  names?: Array<{
+    displayName?: string;
+    metadata?: {
+      primary?: boolean;
+    };
+  }>;
+  emailAddresses?: Array<{
+    value?: string;
+    metadata?: {
+      primary?: boolean;
+    };
+  }>;
+};
+
+type GooglePeopleBatchGetResponse = {
+  responses?: Array<{
+    requestedResourceName?: string;
+    person?: GooglePeoplePersonRecord;
+  }>;
+};
+
 export function isGoogleChatConfigured() {
   return Boolean(
     process.env.GOOGLE_CHAT_CLIENT_ID &&
@@ -124,6 +147,26 @@ function getChatSpaceId(spaceName: string) {
 
 function getChatSpacePath(spaceName: string) {
   return spaceName.startsWith("spaces/") ? spaceName : `spaces/${spaceName}`;
+}
+
+function getPeopleResourceName(chatUserName: string) {
+  return `people/${chatUserName.replace(/^users\//, "")}`;
+}
+
+function getPrimaryDisplayName(person: GooglePeoplePersonRecord) {
+  const primaryName =
+    person.names?.find((name) => name.metadata?.primary)?.displayName?.trim() ??
+    person.names?.[0]?.displayName?.trim();
+
+  if (primaryName) {
+    return primaryName;
+  }
+
+  return (
+    person.emailAddresses?.find((email) => email.metadata?.primary)?.value?.trim() ??
+    person.emailAddresses?.[0]?.value?.trim() ??
+    null
+  );
 }
 
 async function googleChatFetch<T>(
@@ -461,6 +504,109 @@ export async function resolveGoogleWorkspaceUserDisplayName(
     user.primaryEmail?.trim() ||
     null
   );
+}
+
+export async function resolveGooglePeopleDisplayNames(
+  accessToken: string,
+  chatUserNames: string[]
+) {
+  const uniqueUserNames = Array.from(
+    new Set(
+      chatUserNames.filter(
+        (chatUserName) => Boolean(chatUserName) && chatUserName !== "users/app"
+      )
+    )
+  );
+
+  if (!uniqueUserNames.length) {
+    return {} as Record<string, string>;
+  }
+
+  const url = new URL("https://people.googleapis.com/v1/people:batchGet");
+  url.searchParams.set("personFields", "names,emailAddresses");
+
+  uniqueUserNames.forEach((chatUserName) => {
+    url.searchParams.append("resourceNames", getPeopleResourceName(chatUserName));
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`People API user lookup failed: ${body}`);
+  }
+
+  const payload = (await response.json()) as GooglePeopleBatchGetResponse;
+
+  return Object.fromEntries(
+    (payload.responses ?? [])
+      .map((entry) => {
+        const requestedResourceName = entry.requestedResourceName?.trim();
+        const displayName = entry.person ? getPrimaryDisplayName(entry.person) : null;
+
+        if (!requestedResourceName || !displayName) {
+          return null;
+        }
+
+        return [requestedResourceName.replace(/^people\//, "users/"), displayName] as const;
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry))
+  );
+}
+
+export async function resolveGoogleUserDisplayNames(
+  accessToken: string,
+  chatUserNames: string[]
+) {
+  const uniqueUserNames = Array.from(
+    new Set(
+      chatUserNames.filter(
+        (chatUserName) => Boolean(chatUserName) && chatUserName.startsWith("users/")
+      )
+    )
+  );
+
+  const resolvedNames: Record<string, string> = {};
+
+  try {
+    Object.assign(
+      resolvedNames,
+      await resolveGooglePeopleDisplayNames(accessToken, uniqueUserNames)
+    );
+  } catch {
+    // Fallback to Directory API for domains where People API isn't enabled or accessible.
+  }
+
+  const unresolvedUserNames = uniqueUserNames.filter((chatUserName) => !resolvedNames[chatUserName]);
+
+  if (!unresolvedUserNames.length) {
+    return resolvedNames;
+  }
+
+  const directoryEntries = await Promise.all(
+    unresolvedUserNames.map(async (chatUserName) => {
+      try {
+        return [
+          chatUserName,
+          await resolveGoogleWorkspaceUserDisplayName(accessToken, chatUserName)
+        ] as const;
+      } catch {
+        return [chatUserName, null] as const;
+      }
+    })
+  );
+
+  directoryEntries.forEach(([chatUserName, displayName]) => {
+    if (displayName) {
+      resolvedNames[chatUserName] = displayName;
+    }
+  });
+
+  return resolvedNames;
 }
 
 export function getGoogleChatSpaceDisplayName(space: GoogleChatSpaceRecord) {

@@ -9,7 +9,7 @@ import {
   listGoogleChatSpaceMembers,
   listGoogleChatSpaces,
   resolveGoogleChatUserName,
-  resolveGoogleWorkspaceUserDisplayName,
+  resolveGoogleUserDisplayNames,
   type GoogleChatConnectionRecord
 } from "@/lib/google-chat";
 import { getAuthenticatedUserFromRequest } from "@/lib/server-auth";
@@ -31,9 +31,7 @@ async function resolveDirectMessageDisplayNames(
   selfUserName: string | null
 ) {
   const directMessages = spaces.filter((space) => space.spaceType === "DIRECT_MESSAGE");
-  const userNameCache = new Map<string, string | null>();
-
-  const resolvedEntries = await Promise.all(
+  const dmUserNames = await Promise.all(
     directMessages.map(async (space) => {
       try {
         const members = await listGoogleChatSpaceMembers(accessToken, space.name);
@@ -44,32 +42,28 @@ async function resolveDirectMessageDisplayNames(
             member.member.name !== selfUserName
         );
 
-        const otherUserName = otherHumanMember?.member?.name ?? null;
-
-        if (!otherUserName) {
-          return [space.name, null] as const;
-        }
-
-        if (!userNameCache.has(otherUserName)) {
-          try {
-            userNameCache.set(
-              otherUserName,
-              await resolveGoogleWorkspaceUserDisplayName(accessToken, otherUserName)
-            );
-          } catch {
-            userNameCache.set(otherUserName, null);
-          }
-        }
-
-        return [space.name, userNameCache.get(otherUserName) ?? null] as const;
+        return [space.name, otherHumanMember?.member?.name ?? null] as const;
       } catch {
         return [space.name, null] as const;
       }
     })
   );
 
+  const displayNames = await resolveGoogleUserDisplayNames(
+    accessToken,
+    dmUserNames.map((entry) => entry[1]).filter((value): value is string => Boolean(value))
+  ).catch(() => ({} as Record<string, string>));
+
   return Object.fromEntries(
-    resolvedEntries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+    dmUserNames
+      .map(([spaceName, userName]) => {
+        if (!userName || !displayNames[userName]) {
+          return null;
+        }
+
+        return [spaceName, displayNames[userName]] as const;
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry))
   );
 }
 

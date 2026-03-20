@@ -6,7 +6,7 @@ import {
   getGoogleChatMessageText,
   listGoogleChatMessages,
   resolveGoogleChatUserName,
-  resolveGoogleWorkspaceUserDisplayName,
+  resolveGoogleUserDisplayNames,
   type GoogleChatConnectionRecord,
   type GoogleChatMessageRecord
 } from "@/lib/google-chat";
@@ -52,20 +52,7 @@ async function resolveSenderDisplayNames(
     )
   );
 
-  const resolvedEntries = await Promise.all(
-    senderNames.map(async (senderName) => {
-      try {
-        const displayName = await resolveGoogleWorkspaceUserDisplayName(accessToken, senderName);
-        return [senderName, displayName] as const;
-      } catch {
-        return [senderName, null] as const;
-      }
-    })
-  );
-
-  return Object.fromEntries(
-    resolvedEntries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
-  );
+  return resolveGoogleUserDisplayNames(accessToken, senderNames);
 }
 
 function normalizeMessage(
