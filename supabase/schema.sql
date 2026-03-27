@@ -264,3 +264,48 @@ create index if not exists calendar_feeds_user_id_idx on public.calendar_feeds (
 create index if not exists google_chat_connections_user_id_idx on public.google_chat_connections (user_id);
 create index if not exists google_chat_aliases_user_id_idx on public.google_chat_aliases (user_id);
 create index if not exists google_chat_aliases_target_lookup_idx on public.google_chat_aliases (user_id, target_type, target_name);
+
+create table if not exists public.web_bookmarks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  label text not null check (char_length(trim(label)) > 0),
+  url text not null check (char_length(trim(url)) > 0),
+  position integer not null default 0,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+drop trigger if exists web_bookmarks_set_updated_at on public.web_bookmarks;
+create trigger web_bookmarks_set_updated_at
+before update on public.web_bookmarks
+for each row
+execute function public.set_updated_at();
+
+alter table public.web_bookmarks enable row level security;
+
+drop policy if exists "Users can read their own bookmarks" on public.web_bookmarks;
+create policy "Users can read their own bookmarks"
+on public.web_bookmarks
+for select
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own bookmarks" on public.web_bookmarks;
+create policy "Users can insert their own bookmarks"
+on public.web_bookmarks
+for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own bookmarks" on public.web_bookmarks;
+create policy "Users can update their own bookmarks"
+on public.web_bookmarks
+for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own bookmarks" on public.web_bookmarks;
+create policy "Users can delete their own bookmarks"
+on public.web_bookmarks
+for delete
+using (auth.uid() = user_id);
+
+create index if not exists web_bookmarks_user_id_idx on public.web_bookmarks (user_id);

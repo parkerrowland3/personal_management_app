@@ -92,3 +92,10 @@ export type CalendarFeed = {
   url: string;
   domain: Domain;
 };
+
+export type Bookmark = {
+  id: string;
+  label: string;
+  url: string;
+  position: number;
+};

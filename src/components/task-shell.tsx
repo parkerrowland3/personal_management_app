@@ -21,6 +21,7 @@ import {
   DOMAIN_OPTIONS,
   PRIORITY_OPTIONS,
   STATUS_OPTIONS,
+  type Bookmark,
   type CalendarEvent,
   type CalendarFeed,
   type Domain,
@@ -211,6 +212,15 @@ export function TaskShell() {
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarFeeds, setCalendarFeeds] = useState<CalendarFeed[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [isAddBookmarkOverlayOpen, setIsAddBookmarkOverlayOpen] = useState(false);
+  const [bookmarkLabel, setBookmarkLabel] = useState("");
+  const [bookmarkUrl, setBookmarkUrl] = useState("");
+  const [bookmarkMoreOpen, setBookmarkMoreOpen] = useState(false);
+  const [visibleBookmarkCount, setVisibleBookmarkCount] = useState(999);
+  const bookmarkBarRef = useRef<HTMLDivElement>(null);
+  const bookmarkMoreRef = useRef<HTMLDivElement>(null);
+  const bookmarkItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [chatSpaces, setChatSpaces] = useState<GoogleChatSpace[]>([]);
   const [selectedChatSpaceName, setSelectedChatSpaceName] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<GoogleChatMessage[]>([]);
@@ -234,6 +244,7 @@ export function TaskShell() {
 
   const anyOverlayOpen =
     isAddTaskOverlayOpen ||
+    isAddBookmarkOverlayOpen ||
     isDetailOpen ||
     isEventOverlayOpen ||
     isChatOverlayOpen ||
@@ -377,6 +388,25 @@ export function TaskShell() {
     const payload = (await response.json()) as { feeds: CalendarFeed[] };
     setCalendarFeeds(payload.feeds);
   }, [getAccessToken]);
+
+  const loadBookmarks = useCallback(
+    async (userId: string) => {
+      if (!supabase) {
+        try {
+          const stored = localStorage.getItem("focus-desk-bookmarks");
+          if (stored) setBookmarks(JSON.parse(stored) as Bookmark[]);
+        } catch {}
+        return;
+      }
+      const { data } = await supabase
+        .from("web_bookmarks")
+        .select("*")
+        .eq("user_id", userId)
+        .order("position", { ascending: true });
+      if (data) setBookmarks(data as Bookmark[]);
+    },
+    [supabase]
+  );
 
   const loadChatSpaces = useCallback(
     async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
@@ -661,6 +691,9 @@ export function TaskShell() {
         void loadCalendarEvents();
         void loadCalendarFeeds();
         void loadChatStatus();
+        void loadBookmarks(sessionData.session.user.id);
+      } else {
+        void loadBookmarks("");
       }
 
       setIsLoading(false);
@@ -681,6 +714,7 @@ export function TaskShell() {
         void loadCalendarEvents();
         void loadCalendarFeeds();
         void loadChatStatus();
+        void loadBookmarks(nextSession.user.id);
       } else {
         setTasks(sampleTasks);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
@@ -708,6 +742,7 @@ export function TaskShell() {
         });
         setCalendarEvents([]);
         setCalendarFeeds([]);
+        setBookmarks([]);
         setChatSpaces([]);
         setSelectedChatSpaceName(null);
         setChatMessages([]);
@@ -723,6 +758,7 @@ export function TaskShell() {
       authSubscription.data.subscription.unsubscribe();
     };
   }, [
+    loadBookmarks,
     loadCalendarEvents,
     loadCalendarFeeds,
     loadCalendarStatus,
@@ -764,6 +800,64 @@ export function TaskShell() {
     loadChatMessages,
     selectedChatSpaceName
   ]);
+
+  useEffect(() => {
+    const bar = bookmarkBarRef.current;
+    if (!bar) return;
+
+    function computeVisibleCount() {
+      if (!bar) return;
+      const ADD_BUTTON_WIDTH = 40;
+      const MORE_BUTTON_WIDTH = 82;
+      const GAP = 6;
+      const refs = bookmarkItemRefs.current.filter(Boolean) as HTMLButtonElement[];
+
+      // Try fitting all chips without a More button
+      const availableAll = bar.offsetWidth - ADD_BUTTON_WIDTH - GAP;
+      let sum = 0;
+      let allFit = true;
+      for (const el of refs) {
+        sum += el.offsetWidth + GAP;
+        if (sum > availableAll) {
+          allFit = false;
+          break;
+        }
+      }
+
+      if (allFit) {
+        setVisibleBookmarkCount(refs.length);
+        return;
+      }
+
+      // Need More button — recalculate how many fit with it reserved
+      const availableWithMore = bar.offsetWidth - ADD_BUTTON_WIDTH - MORE_BUTTON_WIDTH - GAP * 2;
+      sum = 0;
+      let count = 0;
+      for (const el of refs) {
+        const w = el.offsetWidth + GAP;
+        if (sum + w > availableWithMore) break;
+        sum += w;
+        count++;
+      }
+      setVisibleBookmarkCount(count);
+    }
+
+    computeVisibleCount();
+    const obs = new ResizeObserver(computeVisibleCount);
+    obs.observe(bar);
+    return () => obs.disconnect();
+  }, [bookmarks]);
+
+  useEffect(() => {
+    if (!bookmarkMoreOpen) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (bookmarkMoreRef.current && !bookmarkMoreRef.current.contains(e.target as Node)) {
+        setBookmarkMoreOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [bookmarkMoreOpen]);
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -2074,6 +2168,57 @@ export function TaskShell() {
     }
   }
 
+  async function handleAddBookmark(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const label = bookmarkLabel.trim();
+    const rawUrl = bookmarkUrl.trim();
+    if (!label || !rawUrl) return;
+
+    const normalizedUrl =
+      rawUrl.startsWith("http://") || rawUrl.startsWith("https://") ? rawUrl : `https://${rawUrl}`;
+    const position = bookmarks.length;
+
+    if (!supabase || !session) {
+      const newBookmark: Bookmark = {
+        id: crypto.randomUUID(),
+        label,
+        url: normalizedUrl,
+        position
+      };
+      const next = [...bookmarks, newBookmark];
+      setBookmarks(next);
+      try {
+        localStorage.setItem("focus-desk-bookmarks", JSON.stringify(next));
+      } catch {}
+    } else {
+      const { data } = await supabase
+        .from("web_bookmarks")
+        .insert({ user_id: session.user.id, label, url: normalizedUrl, position })
+        .select()
+        .single();
+      if (data) setBookmarks((current) => [...current, data as Bookmark]);
+    }
+
+    setBookmarkLabel("");
+    setBookmarkUrl("");
+    setIsAddBookmarkOverlayOpen(false);
+  }
+
+  async function deleteBookmark(id: string) {
+    setBookmarks((current) => {
+      const next = current.filter((b) => b.id !== id);
+      if (!supabase) {
+        try {
+          localStorage.setItem("focus-desk-bookmarks", JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+    if (supabase) {
+      await supabase.from("web_bookmarks").delete().eq("id", id);
+    }
+  }
+
   function renderSpaceFilters() {
     return (
       <>
@@ -2102,56 +2247,164 @@ export function TaskShell() {
     );
   }
 
-  function renderWebSearchForm(className?: string) {
+  function renderBookmarkBar() {
+    const visibleCount = Math.min(visibleBookmarkCount, bookmarks.length);
+    const overflowBookmarks = bookmarks.slice(visibleCount);
+    const hasOverflow = overflowBookmarks.length > 0;
+
+    // Keep refs array in sync with bookmark count
+    bookmarkItemRefs.current = bookmarkItemRefs.current.slice(0, bookmarks.length);
+
     return (
-      <form className={`web-search ${className ?? ""}`.trim()} onSubmit={handleWebSearchSubmit}>
-        <div className="web-search__field">
-          <input
-            className="web-search__input"
-            aria-autocomplete="list"
-            aria-label="Search the web"
-            autoComplete="off"
-            onChange={(event) => setWebSearch(event.target.value)}
-            onBlur={() => {
-              window.setTimeout(() => {
-                setIsWebSearchFocused(false);
-              }, 120);
-            }}
-            onFocus={() => setIsWebSearchFocused(true)}
-            onKeyDown={handleWebSearchKeyDown}
-            placeholder="Search the web with DuckDuckGo"
-            spellCheck={false}
-            type="text"
-            value={webSearch}
-          />
-          {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
-            <div className="web-search__suggestions" role="listbox">
-              {isWebSearchLoading ? (
-                <div className="web-search__suggestion web-search__suggestion--status">
-                  Loading suggestions...
-                </div>
-              ) : (
-                webSearchSuggestions.map((suggestion, index) => (
+      <div className="bookmark-bar" ref={bookmarkBarRef}>
+        {/* Hidden measurement row — used by ResizeObserver to compute chip widths */}
+        <div aria-hidden="true" className="bookmark-bar__measure">
+          {bookmarks.map((bookmark, index) => (
+            <button
+              className="bookmark-chip"
+              key={`measure-${bookmark.id}`}
+              ref={(el) => {
+                bookmarkItemRefs.current[index] = el;
+              }}
+              tabIndex={-1}
+              type="button"
+            >
+              {bookmark.label}
+              <span className="bookmark-chip__delete">×</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Visible bookmark chips */}
+        {bookmarks.slice(0, visibleCount).map((bookmark) => (
+          <button
+            className="bookmark-chip"
+            key={bookmark.id}
+            onClick={() => window.open(bookmark.url, "_blank", "noopener,noreferrer")}
+            type="button"
+          >
+            {bookmark.label}
+            <span
+              className="bookmark-chip__delete"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                void deleteBookmark(bookmark.id);
+              }}
+              role="button"
+              tabIndex={-1}
+            >
+              ×
+            </span>
+          </button>
+        ))}
+
+        {/* More dropdown for overflow bookmarks */}
+        {hasOverflow && (
+          <div className="bookmark-bar__more-wrapper" ref={bookmarkMoreRef}>
+            <button
+              className="bookmark-bar__more"
+              onClick={() => setBookmarkMoreOpen((v) => !v)}
+              type="button"
+            >
+              More ▾
+            </button>
+            {bookmarkMoreOpen && (
+              <div className="bookmark-bar__more-menu">
+                {overflowBookmarks.map((bookmark) => (
                   <button
-                    className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
-                    key={suggestion}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      submitWebSearch(suggestion);
+                    className="bookmark-bar__more-item"
+                    key={bookmark.id}
+                    onClick={() => {
+                      window.open(bookmark.url, "_blank", "noopener,noreferrer");
+                      setBookmarkMoreOpen(false);
                     }}
                     type="button"
                   >
-                    {suggestion}
+                    <span>{bookmark.label}</span>
+                    <span
+                      className="bookmark-bar__more-item-delete"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        void deleteBookmark(bookmark.id);
+                      }}
+                      role="button"
+                      tabIndex={-1}
+                    >
+                      ×
+                    </span>
                   </button>
-                ))
-              )}
-            </div>
-          ) : null}
-        </div>
-        <button className="primary-button" disabled={!webSearch.trim()} type="submit">
-          Search
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Add bookmark button */}
+        <button
+          className="bookmark-bar__add"
+          onClick={() => setIsAddBookmarkOverlayOpen(true)}
+          title="Add bookmark"
+          type="button"
+        >
+          +
         </button>
-      </form>
+      </div>
+    );
+  }
+
+  function renderWebSearchForm(className?: string) {
+    return (
+      <div className={`web-search-container ${className ?? ""}`.trim()}>
+        <form className="web-search" onSubmit={handleWebSearchSubmit}>
+          <div className="web-search__field">
+            <input
+              className="web-search__input"
+              aria-autocomplete="list"
+              aria-label="Search the web"
+              autoComplete="off"
+              onChange={(event) => setWebSearch(event.target.value)}
+              onBlur={() => {
+                window.setTimeout(() => {
+                  setIsWebSearchFocused(false);
+                }, 120);
+              }}
+              onFocus={() => setIsWebSearchFocused(true)}
+              onKeyDown={handleWebSearchKeyDown}
+              placeholder="Search the web with DuckDuckGo"
+              spellCheck={false}
+              type="text"
+              value={webSearch}
+            />
+            {isWebSearchFocused && (isWebSearchLoading || webSearchSuggestions.length) ? (
+              <div className="web-search__suggestions" role="listbox">
+                {isWebSearchLoading ? (
+                  <div className="web-search__suggestion web-search__suggestion--status">
+                    Loading suggestions...
+                  </div>
+                ) : (
+                  webSearchSuggestions.map((suggestion, index) => (
+                    <button
+                      className={`web-search__suggestion ${selectedWebSuggestionIndex === index ? "web-search__suggestion--active" : ""}`}
+                      key={suggestion}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        submitWebSearch(suggestion);
+                      }}
+                      type="button"
+                    >
+                      {suggestion}
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+          <button className="primary-button" disabled={!webSearch.trim()} type="submit">
+            Search
+          </button>
+        </form>
+        {renderBookmarkBar()}
+      </div>
     );
   }
 
@@ -2978,6 +3231,40 @@ export function TaskShell() {
           </div>
         </div>
       </section>
+
+      {isAddBookmarkOverlayOpen ? (
+        <Overlay
+          onClose={() => {
+            setIsAddBookmarkOverlayOpen(false);
+            setBookmarkLabel("");
+            setBookmarkUrl("");
+          }}
+          title="Add bookmark"
+          variant="center"
+        >
+          <form className="detail__content" onSubmit={(e) => void handleAddBookmark(e)}>
+            <input
+              autoFocus
+              onChange={(e) => setBookmarkLabel(e.target.value)}
+              placeholder="Label (e.g. GitHub)"
+              value={bookmarkLabel}
+            />
+            <input
+              onChange={(e) => setBookmarkUrl(e.target.value)}
+              placeholder="URL (e.g. https://github.com)"
+              type="url"
+              value={bookmarkUrl}
+            />
+            <button
+              className="primary-button"
+              disabled={!bookmarkLabel.trim() || !bookmarkUrl.trim()}
+              type="submit"
+            >
+              Add bookmark
+            </button>
+          </form>
+        </Overlay>
+      ) : null}
 
       {isAddTaskOverlayOpen ? (
         <Overlay onClose={() => setIsAddTaskOverlayOpen(false)} title="Add task" variant="center">
