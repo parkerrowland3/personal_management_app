@@ -225,6 +225,7 @@ export function TaskShell() {
       ? null
       : "Demo mode is active. Add your Supabase URL and anon key to connect live data."
   );
+  const [googleAuthExpired, setGoogleAuthExpired] = useState(false);
   const chatMessagesRef = useRef<HTMLDivElement | null>(null);
 
   const deferredSearch = useDeferredValue(search);
@@ -344,11 +345,13 @@ export function TaskShell() {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       setNotice(payload?.error ?? "Unable to load calendar events.");
       setCalendarEvents([]);
+      setGoogleAuthExpired(false);
       return;
     }
 
-    const payload = (await response.json()) as { events: CalendarEvent[] };
+    const payload = (await response.json()) as { events: CalendarEvent[]; googleAuthExpired?: boolean };
     setCalendarEvents(payload.events);
+    setGoogleAuthExpired(payload.googleAuthExpired === true);
   }, [getAccessToken]);
 
   const loadCalendarFeeds = useCallback(async () => {
@@ -497,6 +500,7 @@ export function TaskShell() {
 
     if (calendarConnected === "connected") {
       setNotice("Google Calendar connected.");
+      setGoogleAuthExpired(false);
       void loadCalendarStatus();
       void loadCalendarEvents();
     }
@@ -2411,6 +2415,14 @@ export function TaskShell() {
           ) : null}
         </header>
 
+        {googleAuthExpired ? (
+          <div className="notice">
+            Google Calendar needs to be reconnected.{" "}
+            <button disabled={isCalendarBusy} onClick={() => void connectGoogleCalendar()} type="button">
+              Reconnect
+            </button>
+          </div>
+        ) : null}
         {notice ? <div className="notice">{notice}</div> : null}
 
         <section className="mobile-pane" hidden={mobileSection !== "tasks"}>
@@ -2715,6 +2727,14 @@ export function TaskShell() {
             </div>
           </div>
 
+          {googleAuthExpired ? (
+            <div className="notice">
+              Google Calendar needs to be reconnected.{" "}
+              <button disabled={isCalendarBusy} onClick={() => void connectGoogleCalendar()} type="button">
+                Reconnect
+              </button>
+            </div>
+          ) : null}
           {notice ? <div className="notice">{notice}</div> : null}
         </div>
 

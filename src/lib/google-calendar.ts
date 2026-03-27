@@ -184,6 +184,13 @@ export async function refreshGoogleAccessToken(origin: string, refreshToken: str
 
   if (!response.ok) {
     const body = await response.text();
+    let parsed: { error?: string } | null = null;
+    try {
+      parsed = JSON.parse(body) as { error?: string };
+    } catch {}
+    if (parsed?.error === "invalid_grant") {
+      throw new Error("GOOGLE_AUTH_EXPIRED");
+    }
     throw new Error(`Google token refresh failed: ${body}`);
   }
 

@@ -46,50 +46,59 @@ export async function GET(request: Request) {
   try {
     const origin = new URL(request.url).origin;
     const events: CalendarEvent[] = [];
+    let googleAuthExpired = false;
 
     if (connection) {
-      const refreshed = await ensureFreshAccessToken(
-        origin,
-        connection as GoogleCalendarConnectionRecord
-      );
+      try {
+        const refreshed = await ensureFreshAccessToken(
+          origin,
+          connection as GoogleCalendarConnectionRecord
+        );
 
-      if (
-        refreshed.accessToken !== connection.access_token ||
-        refreshed.refreshToken !== connection.refresh_token ||
-        refreshed.expiresAt !== connection.expires_at
-      ) {
-        await supabase
-          .from("google_calendar_connections")
-          .update({
-            access_token: refreshed.accessToken,
-            refresh_token: refreshed.refreshToken,
-            expires_at: refreshed.expiresAt
-          })
-          .eq("user_id", user.id);
+        if (
+          refreshed.accessToken !== connection.access_token ||
+          refreshed.refreshToken !== connection.refresh_token ||
+          refreshed.expiresAt !== connection.expires_at
+        ) {
+          await supabase
+            .from("google_calendar_connections")
+            .update({
+              access_token: refreshed.accessToken,
+              refresh_token: refreshed.refreshToken,
+              expires_at: refreshed.expiresAt
+            })
+            .eq("user_id", user.id);
+        }
+
+        const googleEvents = await listCalendarEvents(
+          refreshed.accessToken,
+          connection.calendar_id ?? "primary"
+        );
+
+        events.push(
+          ...googleEvents.map((event) => ({
+            id: event.id,
+            summary: event.summary || "Untitled event",
+            description: event.description ?? null,
+            htmlLink: event.htmlLink ?? null,
+            start: event.start?.dateTime ?? event.start?.date ?? null,
+            end: event.end?.dateTime ?? event.end?.date ?? null,
+            isAllDay: Boolean(event.start?.date && !event.start?.dateTime),
+            source: "google" as const,
+            sourceName: connection.google_email ?? "Google Calendar",
+            domain:
+              event.extendedProperties?.private?.focusDeskDomain ??
+              connection.default_domain ??
+              "personal"
+          }))
+        );
+      } catch (googleError) {
+        if (googleError instanceof Error && googleError.message === "GOOGLE_AUTH_EXPIRED") {
+          googleAuthExpired = true;
+        } else {
+          throw googleError;
+        }
       }
-
-      const googleEvents = await listCalendarEvents(
-        refreshed.accessToken,
-        connection.calendar_id ?? "primary"
-      );
-
-      events.push(
-        ...googleEvents.map((event) => ({
-          id: event.id,
-          summary: event.summary || "Untitled event",
-          description: event.description ?? null,
-          htmlLink: event.htmlLink ?? null,
-          start: event.start?.dateTime ?? event.start?.date ?? null,
-          end: event.end?.dateTime ?? event.end?.date ?? null,
-          isAllDay: Boolean(event.start?.date && !event.start?.dateTime),
-          source: "google" as const,
-          sourceName: connection.google_email ?? "Google Calendar",
-          domain:
-            event.extendedProperties?.private?.focusDeskDomain ??
-            connection.default_domain ??
-            "personal"
-        }))
-      );
     }
 
     if (feeds?.length) {
@@ -114,7 +123,10 @@ export async function GET(request: Request) {
       return new Date(left.start).getTime() - new Date(right.start).getTime();
     });
 
-    return NextResponse.json({ events: events.slice(0, 60) });
+    return NextResponse.json({
+      events: events.slice(0, 60),
+      ...(googleAuthExpired && { googleAuthExpired: true })
+    });
   } catch (caughtError) {
     const message =
       caughtError instanceof Error ? caughtError.message : "Calendar event fetch failed.";
