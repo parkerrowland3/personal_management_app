@@ -18,9 +18,12 @@ import { flushSync } from "react-dom";
 
 import { sampleTasks } from "@/lib/sample-data";
 import {
+  RECURRENCE_UNITS,
   DOMAIN_OPTIONS,
   PRIORITY_OPTIONS,
+  REVIEW_TYPES,
   STATUS_OPTIONS,
+  type Area,
   type Bookmark,
   type CalendarEvent,
   type CalendarFeed,
@@ -30,7 +33,12 @@ import {
   type GoogleChatMessage,
   type GoogleChatSpace,
   type GoogleChatStatus,
+  type RecurrenceUnit,
+  type RecurringTaskTemplate,
+  type ReviewSession,
   type Task,
+  type TaskChecklistItem,
+  type TaskCompletionKind,
   type TaskDraft,
   type TaskPriority,
   type TaskStatus
@@ -41,9 +49,12 @@ const EMPTY_TASK: TaskDraft = {
   title: "",
   description: "",
   domain: "personal",
-  status: "today",
+  status: "backlog",
   priority: "medium",
-  due_date: null
+  due_date: null,
+  planned_date: null,
+  follow_up_date: null,
+  area_id: null
 };
 
 const EMPTY_EVENT_DRAFT = {
@@ -57,9 +68,11 @@ const EMPTY_EVENT_DRAFT = {
 };
 
 const statusLabels: Record<TaskStatus, string> = {
+  inbox: "Inbox",
   backlog: "Backlog",
   today: "Today",
   in_progress: "In Progress",
+  waiting: "Waiting",
   done: "Done"
 };
 
@@ -79,8 +92,24 @@ const DEFAULT_TIMELINE_START_HOUR = 7;
 const DEFAULT_TIMELINE_END_HOUR = 21;
 const MIN_TIMED_EVENT_DURATION_MINUTES = 30;
 const DONE_RETENTION_DAYS = 5;
+const INBOX_STALE_DAYS = 1;
+const REVIEW_STALE_DAYS = 7;
+const UPCOMING_LOOKAHEAD_DAYS = 3;
+const STARTER_AREAS = ["Health", "Home", "Money", "Errands", "Relationships"];
+const EDITABLE_STATUS_OPTIONS = STATUS_OPTIONS.filter((status) => status !== "done");
 
-type MobileSection = "tasks" | "calendar" | "more";
+const EMPTY_RECURRENCE_DRAFT = {
+  enabled: false,
+  intervalUnit: "week" as RecurrenceUnit,
+  intervalCount: 1,
+  anchorDate: formatDateInputValue(new Date()),
+  dueOffsetDays: 0,
+  isActive: true
+};
+
+type MobileSection = "tasks" | "calendar" | "review" | "more";
+type WorkspaceView = "dashboard" | "review";
+type ReviewFocus = "daily" | "weekly";
 
 type TimelineEventLayout = {
   event: CalendarEvent;
@@ -98,9 +127,12 @@ type ChatAliasEditorState = {
   draftLabel: string;
 };
 
+type RecurrenceDraft = typeof EMPTY_RECURRENCE_DRAFT;
+
 const MOBILE_SECTIONS: Array<{ id: MobileSection; label: string }> = [
   { id: "tasks", label: "Tasks" },
   { id: "calendar", label: "Calendar" },
+  { id: "review", label: "Review" },
   { id: "more", label: "More" }
 ];
 
@@ -110,9 +142,13 @@ function sortTasks(tasks: Task[], todayKey = formatDateInputValue(new Date())) {
       return STATUS_OPTIONS.indexOf(left.status) - STATUS_OPTIONS.indexOf(right.status);
     }
 
-    if (left.status === "backlog") {
-      const leftDistance = getDueDateDistanceFromToday(left.due_date, todayKey);
-      const rightDistance = getDueDateDistanceFromToday(right.due_date, todayKey);
+    if (left.status === "inbox") {
+      return getTaskSortTimestamp(right) - getTaskSortTimestamp(left);
+    }
+
+    if (left.status === "backlog" || left.status === "today" || left.status === "waiting") {
+      const leftDistance = getTaskDistanceFromToday(left, todayKey);
+      const rightDistance = getTaskDistanceFromToday(right, todayKey);
 
       if (leftDistance !== rightDistance) {
         return leftDistance - rightDistance;
@@ -125,6 +161,10 @@ function sortTasks(tasks: Task[], todayKey = formatDateInputValue(new Date())) {
 
     if (left.due_date && right.due_date) {
       return left.due_date.localeCompare(right.due_date);
+    }
+
+    if (left.planned_date && right.planned_date) {
+      return left.planned_date.localeCompare(right.planned_date);
     }
 
     if (left.due_date) {
@@ -156,9 +196,27 @@ function sortCalendarEvents(events: CalendarEvent[]) {
   });
 }
 
+function sortAreas(items: Area[]) {
+  return [...items].sort((left, right) => {
+    if (left.archived !== right.archived) {
+      return left.archived ? 1 : -1;
+    }
+
+    if (left.position !== right.position) {
+      return left.position - right.position;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
 export function TaskShell() {
   const [session, setSession] = useState<Session | null>(null);
   const [tasks, setTasks] = useState<Task[]>(sampleTasks);
+  const [areas, setAreas] = useState<Area[]>(getStarterAreas());
+  const [checklistItems, setChecklistItems] = useState<TaskChecklistItem[]>([]);
+  const [recurringTemplates, setRecurringTemplates] = useState<RecurringTaskTemplate[]>([]);
+  const [reviewSessions, setReviewSessions] = useState<ReviewSession[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(sampleTasks[0]?.id ?? null);
   const [selectedFeed, setSelectedFeed] = useState<CalendarFeed | null>(null);
   const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarEvent | null>(null);
@@ -171,6 +229,14 @@ export function TaskShell() {
   const [isFeedOverlayOpen, setIsFeedOverlayOpen] = useState(false);
   const [isFeedDetailOverlayOpen, setIsFeedDetailOverlayOpen] = useState(false);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_TASK);
+  const [quickCapture, setQuickCapture] = useState("");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("dashboard");
+  const [reviewFocus, setReviewFocus] = useState<ReviewFocus>("daily");
+  const [areaDraftName, setAreaDraftName] = useState("");
+  const [dailyReviewNote, setDailyReviewNote] = useState("");
+  const [weeklyReviewNote, setWeeklyReviewNote] = useState("");
+  const [checklistDraftLabel, setChecklistDraftLabel] = useState("");
+  const [recurrenceDraft, setRecurrenceDraft] = useState<RecurrenceDraft>(EMPTY_RECURRENCE_DRAFT);
   const [eventDraft, setEventDraft] = useState(EMPTY_EVENT_DRAFT);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
@@ -198,6 +264,10 @@ export function TaskShell() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isChatMessagesLoading, setIsChatMessagesLoading] = useState(false);
   const [isFeedBusy, setIsFeedBusy] = useState(false);
+  const [isAreaBusy, setIsAreaBusy] = useState(false);
+  const [isChecklistBusy, setIsChecklistBusy] = useState(false);
+  const [isRecurringBusy, setIsRecurringBusy] = useState(false);
+  const [isReviewSaving, setIsReviewSaving] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<GoogleCalendarStatus>({
     configured: false,
     connected: false,
@@ -404,6 +474,99 @@ export function TaskShell() {
         .eq("user_id", userId)
         .order("position", { ascending: true });
       if (data) setBookmarks(data as Bookmark[]);
+    },
+    [supabase]
+  );
+
+  const loadAreas = useCallback(
+    async (userId: string) => {
+      if (!supabase || !userId) {
+        setAreas(getStarterAreas());
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("areas")
+        .select("*")
+        .eq("user_id", userId)
+        .order("position", { ascending: true });
+
+      if (error) {
+        setNotice(error.message);
+        return;
+      }
+
+      setAreas(sortAreas((data as Area[] | null) ?? []));
+    },
+    [supabase]
+  );
+
+  const loadChecklistItems = useCallback(
+    async (userId: string) => {
+      if (!supabase || !userId) {
+        setChecklistItems([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("task_checklist_items")
+        .select("*")
+        .eq("user_id", userId)
+        .order("task_id", { ascending: true })
+        .order("position", { ascending: true });
+
+      if (error) {
+        setNotice(error.message);
+        return;
+      }
+
+      setChecklistItems((data as TaskChecklistItem[] | null) ?? []);
+    },
+    [supabase]
+  );
+
+  const loadRecurringTemplates = useCallback(
+    async (userId: string) => {
+      if (!supabase || !userId) {
+        setRecurringTemplates([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("recurring_task_templates")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        setNotice(error.message);
+        return;
+      }
+
+      setRecurringTemplates((data as RecurringTaskTemplate[] | null) ?? []);
+    },
+    [supabase]
+  );
+
+  const loadReviewSessions = useCallback(
+    async (userId: string) => {
+      if (!supabase || !userId) {
+        setReviewSessions([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("review_sessions")
+        .select("*")
+        .eq("user_id", userId)
+        .order("completed_at", { ascending: false });
+
+      if (error) {
+        setNotice(error.message);
+        return;
+      }
+
+      setReviewSessions((data as ReviewSession[] | null) ?? []);
     },
     [supabase]
   );
@@ -692,8 +855,16 @@ export function TaskShell() {
         void loadCalendarFeeds();
         void loadChatStatus();
         void loadBookmarks(sessionData.session.user.id);
+        void loadAreas(sessionData.session.user.id);
+        void loadChecklistItems(sessionData.session.user.id);
+        void loadRecurringTemplates(sessionData.session.user.id);
+        void loadReviewSessions(sessionData.session.user.id);
       } else {
         void loadBookmarks("");
+        void loadAreas("");
+        void loadChecklistItems("");
+        void loadRecurringTemplates("");
+        void loadReviewSessions("");
       }
 
       setIsLoading(false);
@@ -715,8 +886,16 @@ export function TaskShell() {
         void loadCalendarFeeds();
         void loadChatStatus();
         void loadBookmarks(nextSession.user.id);
+        void loadAreas(nextSession.user.id);
+        void loadChecklistItems(nextSession.user.id);
+        void loadRecurringTemplates(nextSession.user.id);
+        void loadReviewSessions(nextSession.user.id);
       } else {
         setTasks(sampleTasks);
+        setAreas(getStarterAreas());
+        setChecklistItems([]);
+        setRecurringTemplates([]);
+        setReviewSessions([]);
         setSelectedTaskId(sampleTasks[0]?.id ?? null);
         setSelectedFeed(null);
         setIsAddTaskOverlayOpen(false);
@@ -747,6 +926,15 @@ export function TaskShell() {
         setSelectedChatSpaceName(null);
         setChatMessages([]);
         setChatComposer("");
+        setQuickCapture("");
+        setAreaDraftName("");
+        setDailyReviewNote("");
+        setWeeklyReviewNote("");
+        setChecklistDraftLabel("");
+        setWorkspaceView("dashboard");
+        setReviewFocus("daily");
+        setDraft(EMPTY_TASK);
+        setRecurrenceDraft(EMPTY_RECURRENCE_DRAFT);
         setEmailCode("");
         setIsAwaitingEmailCode(false);
         setNotice("Signed out. Demo mode data is shown until you sign in again.");
@@ -759,10 +947,14 @@ export function TaskShell() {
     };
   }, [
     loadBookmarks,
+    loadAreas,
     loadCalendarEvents,
     loadCalendarFeeds,
     loadCalendarStatus,
+    loadChecklistItems,
     loadChatStatus,
+    loadRecurringTemplates,
+    loadReviewSessions,
     loadTasks,
     supabase
   ]);
@@ -864,6 +1056,37 @@ export function TaskShell() {
     [selectedTaskId, tasks]
   );
 
+  const selectedRecurringTemplate = useMemo(
+    () =>
+      selectedTask?.recurring_template_id
+        ? recurringTemplates.find((template) => template.id === selectedTask.recurring_template_id) ?? null
+        : null,
+    [recurringTemplates, selectedTask]
+  );
+
+  const selectedTaskChecklist = useMemo(
+    () =>
+      selectedTask
+        ? checklistItems.filter((item) => item.task_id === selectedTask.id).sort((left, right) => left.position - right.position)
+        : [],
+    [checklistItems, selectedTask]
+  );
+
+  const checklistCountsByTask = useMemo(() => {
+    const counts = new Map<string, { completed: number; total: number }>();
+
+    checklistItems.forEach((item) => {
+      const existing = counts.get(item.task_id) ?? { completed: 0, total: 0 };
+      existing.total += 1;
+      if (item.completed_at) {
+        existing.completed += 1;
+      }
+      counts.set(item.task_id, existing);
+    });
+
+    return counts;
+  }, [checklistItems]);
+
   const archivedTasks = useMemo(
     () => tasks.filter((task) => isArchivedTask(task, now)),
     [now, tasks]
@@ -872,6 +1095,16 @@ export function TaskShell() {
   const activeTasks = useMemo(
     () => tasks.filter((task) => !isArchivedTask(task, now)),
     [now, tasks]
+  );
+
+  const activeAreas = useMemo(
+    () => areas.filter((area) => !area.archived),
+    [areas]
+  );
+
+  const areaLookup = useMemo(
+    () => new Map(areas.map((area) => [area.id, area])),
+    [areas]
   );
 
   const selectedChatSpace = useMemo(
@@ -885,6 +1118,106 @@ export function TaskShell() {
   );
 
   const hasUnreadChatSpaces = unreadChatCount > 0;
+
+  const reviewScopedTasks = useMemo(
+    () => activeTasks.filter((task) => activeDomain === "all" || task.domain === activeDomain),
+    [activeDomain, activeTasks]
+  );
+
+  const forgottenInboxTasks = useMemo(
+    () =>
+      reviewScopedTasks.filter(
+        (task) => task.status === "inbox" && getTaskAgeInDays(task, now) > INBOX_STALE_DAYS
+      ),
+    [now, reviewScopedTasks]
+  );
+
+  const overdueTasks = useMemo(
+    () =>
+      reviewScopedTasks.filter(
+        (task) => task.status !== "done" && Boolean(task.due_date) && task.due_date! < todayKey
+      ),
+    [reviewScopedTasks, todayKey]
+  );
+
+  const dueFollowUpTasks = useMemo(
+    () =>
+      reviewScopedTasks.filter((task) => {
+        if (task.status !== "waiting") {
+          return false;
+        }
+
+        if (task.follow_up_date) {
+          return task.follow_up_date <= todayKey;
+        }
+
+        return getTaskAgeInDays(task, now) >= REVIEW_STALE_DAYS;
+      }),
+    [now, reviewScopedTasks, todayKey]
+  );
+
+  const staleOpenTasks = useMemo(
+    () =>
+      reviewScopedTasks.filter(
+        (task) =>
+          ["backlog", "in_progress"].includes(task.status) &&
+          !task.planned_date &&
+          !task.due_date &&
+          getTaskAgeInDays(task, now) >= REVIEW_STALE_DAYS
+      ),
+    [now, reviewScopedTasks]
+  );
+
+  const upcomingSoonTasks = useMemo(
+    () =>
+      reviewScopedTasks.filter((task) => {
+        const attentionDate = getTaskAttentionDate(task);
+
+        return Boolean(attentionDate) && isDateWithinDays(attentionDate!, todayKey, UPCOMING_LOOKAHEAD_DAYS);
+      }),
+    [reviewScopedTasks, todayKey]
+  );
+
+  const recentWins = useMemo(
+    () =>
+      tasks.filter((task) => {
+        if (task.status !== "done") {
+          return false;
+        }
+
+        if (activeDomain !== "all" && task.domain !== activeDomain) {
+          return false;
+        }
+
+        const completedAt = getTaskCompletedAt(task);
+        return Boolean(completedAt) && now.getTime() - completedAt!.getTime() <= 7 * 24 * 60 * 60 * 1000;
+      }),
+    [activeDomain, now, tasks]
+  );
+
+  const areaReviewBuckets = useMemo(() => {
+    return activeAreas.map((area) => ({
+      area,
+      tasks: reviewScopedTasks.filter((task) => task.area_id === area.id && task.status !== "done")
+    }));
+  }, [activeAreas, reviewScopedTasks]);
+
+  const tasksWithoutArea = useMemo(
+    () => reviewScopedTasks.filter((task) => !task.area_id && task.status !== "done"),
+    [reviewScopedTasks]
+  );
+
+  const lastDailyReview = useMemo(
+    () =>
+      reviewSessions.find((session) => session.review_type === "daily" && session.completed_at) ?? null,
+    [reviewSessions]
+  );
+
+  const lastWeeklyReview = useMemo(
+    () =>
+      reviewSessions.find((session) => session.review_type === "weekly" && session.completed_at) ?? null,
+    [reviewSessions]
+  );
 
   useEffect(() => {
     if (!isChatOverlayOpen || !selectedChatSpaceName || !chatMessages.length) {
@@ -903,6 +1236,22 @@ export function TaskShell() {
 
     return () => window.cancelAnimationFrame(frame);
   }, [chatMessages.length, isChatOverlayOpen, selectedChatSpaceName]);
+
+  useEffect(() => {
+    if (!selectedRecurringTemplate) {
+      setRecurrenceDraft(EMPTY_RECURRENCE_DRAFT);
+      return;
+    }
+
+    setRecurrenceDraft({
+      enabled: true,
+      intervalUnit: selectedRecurringTemplate.interval_unit,
+      intervalCount: selectedRecurringTemplate.interval_count,
+      anchorDate: selectedRecurringTemplate.anchor_date,
+      dueOffsetDays: selectedRecurringTemplate.due_offset_days,
+      isActive: selectedRecurringTemplate.is_active
+    });
+  }, [selectedRecurringTemplate]);
 
   useEffect(() => {
     const tasksToPromote = tasks.filter((task) => shouldAutoMoveTaskToToday(task, todayKey));
@@ -941,14 +1290,16 @@ export function TaskShell() {
 
     return activeTasks.filter((task) => {
       const matchesDomain = activeDomain === "all" || task.domain === activeDomain;
+      const areaName = task.area_id ? areaLookup.get(task.area_id)?.name.toLowerCase() ?? "" : "";
       const matchesSearch =
         !normalized ||
         task.title.toLowerCase().includes(normalized) ||
-        task.description?.toLowerCase().includes(normalized);
+        task.description?.toLowerCase().includes(normalized) ||
+        areaName.includes(normalized);
 
       return matchesDomain && matchesSearch;
     });
-  }, [activeDomain, activeTasks, deferredSearch]);
+  }, [activeDomain, activeTasks, areaLookup, deferredSearch]);
 
   const groupedTasks = useMemo(() => {
     return STATUS_OPTIONS.map((status) => ({
@@ -991,6 +1342,31 @@ export function TaskShell() {
       };
     });
   }, [visibleCalendarEvents]);
+
+  const upcomingCalendarEvents = useMemo(
+    () =>
+      visibleCalendarEvents.filter(
+        (event) => Boolean(event.start) && isDateWithinDays(extractDateOnly(event.start!), todayKey, UPCOMING_LOOKAHEAD_DAYS)
+      ),
+    [todayKey, visibleCalendarEvents]
+  );
+
+  const forgottenThingsCount =
+    forgottenInboxTasks.length + overdueTasks.length + dueFollowUpTasks.length + staleOpenTasks.length;
+
+  const dailyReviewIsFresh = useMemo(
+    () =>
+      Boolean(lastDailyReview?.completed_at) &&
+      getDaysSinceTimestamp(lastDailyReview?.completed_at ?? null, now) < 1,
+    [lastDailyReview?.completed_at, now]
+  );
+
+  const weeklyReviewIsFresh = useMemo(
+    () =>
+      Boolean(lastWeeklyReview?.completed_at) &&
+      getDaysSinceTimestamp(lastWeeklyReview?.completed_at ?? null, now) < 7,
+    [lastWeeklyReview?.completed_at, now]
+  );
 
   const todayAllDayEvents = useMemo(
     () => todayEvents.filter((event) => event.isAllDay),
@@ -1103,6 +1479,286 @@ export function TaskShell() {
     setIsSaving(false);
   }
 
+  async function createRecurringTemplateForTask(
+    userId: string | null,
+    values: ReturnType<typeof getPreparedTaskValues>
+  ) {
+    if (!recurrenceDraft.enabled) {
+      return null;
+    }
+
+    const dueOffsetDays =
+      recurrenceDraft.dueOffsetDays || getDueOffsetDays(values.planned_date, values.due_date);
+    const payload = {
+      title: values.title,
+      description: values.description,
+      domain: values.domain,
+      priority: values.priority,
+      area_id: values.area_id,
+      anchor_date: recurrenceDraft.anchorDate || values.planned_date || values.due_date || todayKey,
+      interval_unit: recurrenceDraft.intervalUnit,
+      interval_count: recurrenceDraft.intervalCount,
+      due_offset_days: dueOffsetDays,
+      is_active: recurrenceDraft.isActive
+    };
+
+    if (!supabase || !userId) {
+      const nextTemplate: RecurringTaskTemplate = {
+        id: crypto.randomUUID(),
+        user_id: userId ?? undefined,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...payload
+      };
+      setRecurringTemplates((current) => [...current, nextTemplate]);
+      return nextTemplate;
+    }
+
+    const { data, error } = await supabase
+      .from("recurring_task_templates")
+      .insert({
+        ...payload,
+        user_id: userId
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const nextTemplate = data as RecurringTaskTemplate;
+    setRecurringTemplates((current) => [...current, nextTemplate]);
+    return nextTemplate;
+  }
+
+  async function syncRecurringTemplateDefaults(task: Task, patch: Partial<TaskDraft>) {
+    if (!task.recurring_template_id) {
+      return;
+    }
+
+    const templatePatch: Partial<RecurringTaskTemplate> = {};
+
+    if (patch.title !== undefined) {
+      templatePatch.title = (patch.title || task.title).trim();
+    }
+
+    if (patch.description !== undefined) {
+      templatePatch.description = patch.description?.trim() || null;
+    }
+
+    if (patch.domain !== undefined) {
+      templatePatch.domain = patch.domain;
+    }
+
+    if (patch.priority !== undefined) {
+      templatePatch.priority = patch.priority;
+    }
+
+    if (patch.area_id !== undefined) {
+      templatePatch.area_id = patch.area_id || null;
+    }
+
+    if (!Object.keys(templatePatch).length) {
+      return;
+    }
+
+    if (!supabase || !session?.user.id || task.id.startsWith("sample-")) {
+      setRecurringTemplates((current) =>
+        current.map((template) =>
+          template.id === task.recurring_template_id ? { ...template, ...templatePatch } : template
+        )
+      );
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("recurring_task_templates")
+      .update(templatePatch)
+      .eq("id", task.recurring_template_id)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    setRecurringTemplates((current) =>
+      current.map((template) =>
+        template.id === task.recurring_template_id ? (data as RecurringTaskTemplate) : template
+      )
+    );
+  }
+
+  async function completeTaskById(taskId: string, action: "complete" | "skip" = "complete") {
+    const task = tasks.find((item) => item.id === taskId);
+
+    if (!task) {
+      return;
+    }
+
+    if (!supabase || !session?.user.id || task.id.startsWith("sample-")) {
+      const updatedTask: Task = {
+        ...task,
+        status: "done",
+        completed_at: new Date().toISOString(),
+        completion_kind: action === "skip" ? "skipped" : "completed"
+      };
+
+      const template = task.recurring_template_id
+        ? recurringTemplates.find((item) => item.id === task.recurring_template_id) ?? null
+        : null;
+      const hasOpenSibling = task.recurring_template_id
+        ? tasks.some(
+            (item) =>
+              item.id !== task.id &&
+              item.recurring_template_id === task.recurring_template_id &&
+              item.status !== "done"
+          )
+        : false;
+      const nextTask =
+        template && template.is_active && !hasOpenSibling
+          ? buildNextRecurringTask(task, template)
+          : null;
+
+      setTasks((current) =>
+        sortTasks(
+          current
+            .map((item) => (item.id === task.id ? updatedTask : item))
+            .concat(nextTask ? [nextTask] : [])
+        )
+      );
+      setNotice(action === "skip" ? "Task skipped." : "Task completed.");
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      setNotice("Sign in before completing tasks.");
+      return;
+    }
+
+    const response = await fetch(`/api/tasks/${taskId}/complete`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ action })
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; task?: Task | null; nextTask?: Task | null }
+      | null;
+
+    if (!response.ok || !payload?.task) {
+      setNotice(payload?.error ?? "Unable to complete the task.");
+      return;
+    }
+
+    setTasks((current) => {
+      const withoutCurrent = current.filter((item) => item.id !== payload.task!.id);
+      const withoutNext = payload.nextTask
+        ? withoutCurrent.filter((item) => item.id !== payload.nextTask!.id)
+        : withoutCurrent;
+
+      return sortTasks([payload.task!, ...(payload.nextTask ? [payload.nextTask] : []), ...withoutNext]);
+    });
+
+    if (payload.nextTask) {
+      setSelectedTaskId(payload.nextTask.id);
+    }
+
+    setNotice(action === "skip" ? "Task skipped and rolled forward." : "Task completed.");
+  }
+
+  async function reopenTask(taskId: string, status: TaskStatus = "backlog") {
+    const task = tasks.find((item) => item.id === taskId);
+
+    if (!task) {
+      return;
+    }
+
+    const nextStatus = getNormalizedTaskStatus(status, task.planned_date, task.due_date, todayKey);
+    const patch = {
+      status: nextStatus,
+      completed_at: null,
+      completion_kind: null
+    };
+
+    setTasks((current) =>
+      sortTasks(current.map((item) => (item.id === taskId ? { ...item, ...patch } : item)))
+    );
+
+    if (!supabase || !session?.user.id || task.id.startsWith("sample-")) {
+      setNotice("Task reopened in demo mode.");
+      return;
+    }
+
+    const { error } = await supabase.from("tasks").update(patch).eq("id", taskId);
+
+    if (error) {
+      setNotice(error.message);
+      await loadTasks(session.user.id);
+      return;
+    }
+
+    setNotice("Task reopened.");
+  }
+
+  async function createInboxTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const title = quickCapture.trim();
+
+    if (!title) {
+      return;
+    }
+
+    const nextDraft: TaskDraft = {
+      ...EMPTY_TASK,
+      title,
+      domain: activeDomain === "all" ? "personal" : activeDomain,
+      status: "inbox"
+    };
+
+    const nextTask = getPreparedTaskValues(nextDraft, todayKey);
+
+    if (!supabase || !session?.user.id) {
+      const localTask: Task = {
+        id: crypto.randomUUID(),
+        ...nextTask,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      setTasks((current) => sortTasks([localTask, ...current]));
+      setSelectedTaskId(localTask.id);
+      setQuickCapture("");
+      setNotice("Added to Inbox.");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        ...nextTask,
+        user_id: session.user.id
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      setNotice(error.message);
+      return;
+    }
+
+    setTasks((current) => sortTasks([data as Task, ...current]));
+    setSelectedTaskId(data.id);
+    setQuickCapture("");
+    setNotice("Added to Inbox.");
+  }
+
   async function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -1111,62 +1767,79 @@ export function TaskShell() {
       return;
     }
 
-    if (!supabase || !session?.user.id) {
-      const nextStatus = getNormalizedTaskStatus(draft.status, draft.due_date, todayKey);
-      const nextTask: Task = {
-        ...draft,
-        id: crypto.randomUUID(),
-        title: draft.title.trim(),
-        description: draft.description?.trim() || null,
-        status: nextStatus,
-        completed_at: nextStatus === "done" ? new Date().toISOString() : null
-      };
-      const nextTasks = sortTasks([nextTask, ...tasks]);
+    const preparedTask = getPreparedTaskValues(draft, todayKey);
+
+    try {
+      const recurringTemplate = await createRecurringTemplateForTask(session?.user.id ?? null, preparedTask);
+
+      if (!supabase || !session?.user.id) {
+        const nextStatus = preparedTask.status;
+        const nextTask: Task = {
+          ...preparedTask,
+          id: crypto.randomUUID(),
+          recurring_template_id: recurringTemplate?.id ?? null,
+          status: nextStatus,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          completed_at: null,
+          completion_kind: null
+        };
+        const nextTasks = sortTasks([nextTask, ...tasks]);
+        setTasks(nextTasks);
+        setSelectedTaskId(nextTask.id);
+        setIsAddTaskOverlayOpen(false);
+        setIsDetailOpen(false);
+        setDraft(EMPTY_TASK);
+        setRecurrenceDraft(EMPTY_RECURRENCE_DRAFT);
+        setNotice("Task added in demo mode.");
+        return;
+      }
+
+      setIsSaving(true);
+
+      const { data, error } = await supabase
+        .from("tasks")
+        .insert({
+          ...preparedTask,
+          recurring_template_id: recurringTemplate?.id ?? null,
+          user_id: session.user.id
+        })
+        .select()
+        .single();
+
+      if (error) {
+        setNotice(error.message);
+        setIsSaving(false);
+        return;
+      }
+
+      const nextTasks = sortTasks([data as Task, ...tasks]);
       setTasks(nextTasks);
-      setSelectedTaskId(nextTask.id);
+      setSelectedTaskId(data.id);
       setIsAddTaskOverlayOpen(false);
       setIsDetailOpen(false);
       setDraft(EMPTY_TASK);
-      setNotice("Task added in demo mode.");
-      return;
-    }
-
-    setIsSaving(true);
-
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert({
-        ...draft,
-        user_id: session.user.id,
-        title: draft.title.trim(),
-        description: draft.description?.trim() || null,
-        status: getNormalizedTaskStatus(draft.status, draft.due_date, todayKey),
-        completed_at:
-          getNormalizedTaskStatus(draft.status, draft.due_date, todayKey) === "done"
-            ? new Date().toISOString()
-            : null
-      })
-      .select()
-      .single();
-
-    if (error) {
-      setNotice(error.message);
+      setRecurrenceDraft(EMPTY_RECURRENCE_DRAFT);
+      setNotice("Task created.");
       setIsSaving(false);
-      return;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to create the task.");
+      setIsSaving(false);
     }
-
-    const nextTasks = sortTasks([data as Task, ...tasks]);
-    setTasks(nextTasks);
-    setSelectedTaskId(data.id);
-    setIsAddTaskOverlayOpen(false);
-    setIsDetailOpen(false);
-    setDraft(EMPTY_TASK);
-    setNotice("Task created.");
-    setIsSaving(false);
   }
 
   async function updateSelectedTask(patch: Partial<TaskDraft>) {
     if (!selectedTask) {
+      return;
+    }
+
+    if (patch.status === "done") {
+      await completeTaskById(selectedTask.id, "complete");
+      return;
+    }
+
+    if (selectedTask.status === "done" && patch.status) {
+      await reopenTask(selectedTask.id, patch.status);
       return;
     }
 
@@ -1186,6 +1859,7 @@ export function TaskShell() {
 
     if (!supabase || !session?.user.id || selectedTask.id.startsWith("sample-")) {
       setNotice("Updated locally in demo mode.");
+      await syncRecurringTemplateDefaults(selectedTask, patch);
       return;
     }
 
@@ -1203,6 +1877,13 @@ export function TaskShell() {
       return;
     }
 
+    try {
+      await syncRecurringTemplateDefaults(selectedTask, patch);
+    } catch (caughtError) {
+      setNotice(caughtError instanceof Error ? caughtError.message : "Task updated, but recurrence settings could not be synced.");
+      return;
+    }
+
     setNotice("Task updated.");
   }
 
@@ -1213,7 +1894,17 @@ export function TaskShell() {
       return;
     }
 
-    const nextStatus = getNormalizedTaskStatus(status, task.due_date, todayKey);
+    if (status === "done") {
+      await completeTaskById(taskId, "complete");
+      return;
+    }
+
+    if (task.status === "done") {
+      await reopenTask(taskId, status);
+      return;
+    }
+
+    const nextStatus = getNormalizedTaskStatus(status, task.planned_date, task.due_date, todayKey);
 
     if (task.status === nextStatus) {
       return;
@@ -1247,6 +1938,433 @@ export function TaskShell() {
     }
 
     setNotice(`Task moved to ${statusLabels[nextStatus]}.`);
+  }
+
+  async function addArea(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = areaDraftName.trim();
+
+    if (!name) {
+      return;
+    }
+
+    const position = areas.length;
+
+    if (!supabase || !session?.user.id) {
+      const nextArea: Area = {
+        id: crypto.randomUUID(),
+        name,
+        position,
+        archived: false
+      };
+      setAreas((current) => sortAreas([...current, nextArea]));
+      setAreaDraftName("");
+      setNotice("Area added in demo mode.");
+      return;
+    }
+
+    setIsAreaBusy(true);
+
+    const { data, error } = await supabase
+      .from("areas")
+      .insert({
+        user_id: session.user.id,
+        name,
+        position
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      setNotice(error.message);
+      setIsAreaBusy(false);
+      return;
+    }
+
+    setAreas((current) => sortAreas([...current, data as Area]));
+    setAreaDraftName("");
+    setNotice("Area added.");
+    setIsAreaBusy(false);
+  }
+
+  async function addStarterAreas() {
+    const missingAreas = STARTER_AREAS.filter(
+      (label) => !areas.some((area) => area.name.toLowerCase() === label.toLowerCase())
+    );
+
+    if (!missingAreas.length) {
+      setNotice("Starter areas are already in place.");
+      return;
+    }
+
+    if (!supabase || !session?.user.id) {
+      const nextAreas = missingAreas.map((name, index) => ({
+        id: crypto.randomUUID(),
+        name,
+        archived: false,
+        position: areas.length + index
+      })) as Area[];
+      setAreas((current) => sortAreas([...current, ...nextAreas]));
+      setNotice("Starter areas added in demo mode.");
+      return;
+    }
+
+    setIsAreaBusy(true);
+
+    const { data, error } = await supabase
+      .from("areas")
+      .insert(
+        missingAreas.map((name, index) => ({
+          user_id: session.user.id,
+          name,
+          position: areas.length + index
+        }))
+      )
+      .select("*");
+
+    if (error) {
+      setNotice(error.message);
+      setIsAreaBusy(false);
+      return;
+    }
+
+    setAreas((current) => sortAreas([...current, ...((data as Area[] | null) ?? [])]));
+    setNotice("Starter areas added.");
+    setIsAreaBusy(false);
+  }
+
+  async function toggleAreaArchived(area: Area) {
+    const patch = { archived: !area.archived };
+
+    setAreas((current) =>
+      sortAreas(current.map((item) => (item.id === area.id ? { ...item, ...patch } : item)))
+    );
+
+    if (!supabase || !session?.user.id) {
+      setNotice(area.archived ? "Area restored in demo mode." : "Area archived in demo mode.");
+      return;
+    }
+
+    const { error } = await supabase.from("areas").update(patch).eq("id", area.id);
+
+    if (error) {
+      setNotice(error.message);
+      await loadAreas(session.user.id);
+      return;
+    }
+
+    setNotice(area.archived ? "Area restored." : "Area archived.");
+  }
+
+  async function addChecklistItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedTask) {
+      return;
+    }
+
+    const label = checklistDraftLabel.trim();
+
+    if (!label) {
+      return;
+    }
+
+    const position = selectedTaskChecklist.length;
+
+    if (!supabase || !session?.user.id || selectedTask.id.startsWith("sample-")) {
+      const nextItem: TaskChecklistItem = {
+        id: crypto.randomUUID(),
+        task_id: selectedTask.id,
+        user_id: session?.user.id,
+        label,
+        position,
+        completed_at: null
+      };
+      setChecklistItems((current) => [...current, nextItem]);
+      setChecklistDraftLabel("");
+      setNotice("Checklist item added in demo mode.");
+      return;
+    }
+
+    setIsChecklistBusy(true);
+
+    const { data, error } = await supabase
+      .from("task_checklist_items")
+      .insert({
+        user_id: session.user.id,
+        task_id: selectedTask.id,
+        label,
+        position
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      setNotice(error.message);
+      setIsChecklistBusy(false);
+      return;
+    }
+
+    setChecklistItems((current) => [...current, data as TaskChecklistItem]);
+    setChecklistDraftLabel("");
+    setNotice("Checklist item added.");
+    setIsChecklistBusy(false);
+  }
+
+  async function toggleChecklistItem(item: TaskChecklistItem) {
+    const patch = {
+      completed_at: item.completed_at ? null : new Date().toISOString()
+    };
+
+    setChecklistItems((current) =>
+      current.map((entry) => (entry.id === item.id ? { ...entry, ...patch } : entry))
+    );
+
+    if (!supabase || !session?.user.id || item.task_id.startsWith("sample-")) {
+      setNotice("Checklist updated in demo mode.");
+      return;
+    }
+
+    const { error } = await supabase.from("task_checklist_items").update(patch).eq("id", item.id);
+
+    if (error) {
+      setNotice(error.message);
+      await loadChecklistItems(session.user.id);
+      return;
+    }
+
+    setNotice("Checklist updated.");
+  }
+
+  async function removeChecklistItem(itemId: string) {
+    setChecklistItems((current) => current.filter((item) => item.id !== itemId));
+
+    if (!supabase || !session?.user.id) {
+      setNotice("Checklist item removed in demo mode.");
+      return;
+    }
+
+    const { error } = await supabase.from("task_checklist_items").delete().eq("id", itemId);
+
+    if (error) {
+      setNotice(error.message);
+      await loadChecklistItems(session.user.id);
+      return;
+    }
+
+    setNotice("Checklist item removed.");
+  }
+
+  async function saveRecurringSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedTask) {
+      return;
+    }
+
+    if (!recurrenceDraft.enabled) {
+      if (!selectedRecurringTemplate) {
+        setNotice("Recurrence is already off.");
+        return;
+      }
+
+      setIsRecurringBusy(true);
+
+      if (!supabase || !session?.user.id || selectedTask.id.startsWith("sample-")) {
+        setRecurringTemplates((current) =>
+          current.map((template) =>
+            template.id === selectedRecurringTemplate.id ? { ...template, is_active: false } : template
+          )
+        );
+        setNotice("Recurrence paused in demo mode.");
+        setIsRecurringBusy(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("recurring_task_templates")
+        .update({ is_active: false })
+        .eq("id", selectedRecurringTemplate.id)
+        .select("*")
+        .single();
+
+      if (error) {
+        setNotice(error.message);
+        setIsRecurringBusy(false);
+        return;
+      }
+
+      setRecurringTemplates((current) =>
+        current.map((template) =>
+          template.id === selectedRecurringTemplate.id ? (data as RecurringTaskTemplate) : template
+        )
+      );
+      setNotice("Recurrence paused.");
+      setIsRecurringBusy(false);
+      return;
+    }
+
+    const payload = {
+      title: selectedTask.title,
+      description: selectedTask.description ?? null,
+      domain: selectedTask.domain,
+      priority: selectedTask.priority,
+      area_id: selectedTask.area_id ?? null,
+      anchor_date: recurrenceDraft.anchorDate || selectedTask.planned_date || selectedTask.due_date || todayKey,
+      interval_unit: recurrenceDraft.intervalUnit,
+      interval_count: recurrenceDraft.intervalCount,
+      due_offset_days:
+        recurrenceDraft.dueOffsetDays || getDueOffsetDays(selectedTask.planned_date, selectedTask.due_date),
+      is_active: recurrenceDraft.isActive
+    };
+
+    setIsRecurringBusy(true);
+
+    if (!supabase || !session?.user.id || selectedTask.id.startsWith("sample-")) {
+      if (selectedRecurringTemplate) {
+        setRecurringTemplates((current) =>
+          current.map((template) =>
+            template.id === selectedRecurringTemplate.id ? { ...template, ...payload } : template
+          )
+        );
+      } else {
+        const nextTemplate: RecurringTaskTemplate = {
+          id: crypto.randomUUID(),
+          user_id: session?.user.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          ...payload
+        };
+        setRecurringTemplates((current) => [...current, nextTemplate]);
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === selectedTask.id ? { ...task, recurring_template_id: nextTemplate.id } : task
+          )
+        );
+      }
+      setNotice("Recurrence saved in demo mode.");
+      setIsRecurringBusy(false);
+      return;
+    }
+
+    if (selectedRecurringTemplate) {
+      const { data, error } = await supabase
+        .from("recurring_task_templates")
+        .update(payload)
+        .eq("id", selectedRecurringTemplate.id)
+        .select("*")
+        .single();
+
+      if (error) {
+        setNotice(error.message);
+        setIsRecurringBusy(false);
+        return;
+      }
+
+      setRecurringTemplates((current) =>
+        current.map((template) =>
+          template.id === selectedRecurringTemplate.id ? (data as RecurringTaskTemplate) : template
+        )
+      );
+      setNotice("Recurrence updated.");
+      setIsRecurringBusy(false);
+      return;
+    }
+
+    const { data: templateData, error: templateError } = await supabase
+      .from("recurring_task_templates")
+      .insert({
+        user_id: session.user.id,
+        ...payload
+      })
+      .select("*")
+      .single();
+
+    if (templateError) {
+      setNotice(templateError.message);
+      setIsRecurringBusy(false);
+      return;
+    }
+
+    const nextTemplate = templateData as RecurringTaskTemplate;
+    const { data: taskData, error: taskError } = await supabase
+      .from("tasks")
+      .update({ recurring_template_id: nextTemplate.id })
+      .eq("id", selectedTask.id)
+      .select("*")
+      .single();
+
+    if (taskError) {
+      setNotice(taskError.message);
+      setIsRecurringBusy(false);
+      return;
+    }
+
+    setRecurringTemplates((current) => [...current, nextTemplate]);
+    setTasks((current) =>
+      sortTasks(current.map((task) => (task.id === selectedTask.id ? (taskData as Task) : task)))
+    );
+    setSelectedTaskId(selectedTask.id);
+    setNotice("Recurrence enabled.");
+    setIsRecurringBusy(false);
+  }
+
+  async function completeReview(reviewType: typeof REVIEW_TYPES[number]) {
+    const note = (reviewType === "daily" ? dailyReviewNote : weeklyReviewNote).trim() || null;
+    const payload = {
+      review_type: reviewType,
+      review_date: todayKey,
+      note,
+      completed_at: new Date().toISOString()
+    };
+
+    if (!supabase || !session?.user.id) {
+      const nextSession: ReviewSession = {
+        id: crypto.randomUUID(),
+        user_id: session?.user.id,
+        ...payload
+      };
+      setReviewSessions((current) => [nextSession, ...current]);
+      setNotice(reviewType === "daily" ? "Daily briefing saved in demo mode." : "Weekly review saved in demo mode.");
+      return;
+    }
+
+    setIsReviewSaving(true);
+
+    const { data, error } = await supabase
+      .from("review_sessions")
+      .upsert(
+        {
+          user_id: session.user.id,
+          ...payload
+        },
+        {
+          onConflict: "user_id,review_type,review_date"
+        }
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      setNotice(error.message);
+      setIsReviewSaving(false);
+      return;
+    }
+
+    setReviewSessions((current) => {
+      const next = current.filter(
+        (sessionEntry) =>
+          !(
+            sessionEntry.review_type === reviewType &&
+            sessionEntry.review_date === todayKey
+          )
+      );
+
+      return [data as ReviewSession, ...next];
+    });
+    setNotice(reviewType === "daily" ? "Daily briefing saved." : "Weekly review saved.");
+    setIsReviewSaving(false);
   }
 
   function handleTaskDragStart(event: DragEvent<HTMLButtonElement>, taskId: string) {
@@ -1292,6 +2410,7 @@ export function TaskShell() {
 
     const fallbackId = tasks.find((task) => task.id !== selectedTask.id)?.id ?? null;
     setTasks((current) => current.filter((task) => task.id !== selectedTask.id));
+    setChecklistItems((current) => current.filter((item) => item.task_id !== selectedTask.id));
     setSelectedTaskId(fallbackId);
     setIsDetailOpen(false);
 
@@ -1885,6 +3004,9 @@ export function TaskShell() {
       domain: nextDomain,
       status: nextStatus,
       priority: "medium" as const,
+      planned_date: dueDate,
+      follow_up_date: null,
+      area_id: null,
       due_date: dueDate
     };
 
@@ -2070,6 +3192,19 @@ export function TaskShell() {
   function openArchiveOverlay() {
     setArchivedDomainFilter(activeDomain === "all" ? "all" : activeDomain);
     setIsArchiveOverlayOpen(true);
+  }
+
+  function openAddTaskOverlay() {
+    setDraft({
+      ...EMPTY_TASK,
+      domain: activeDomain === "all" ? "personal" : activeDomain,
+      status: "backlog"
+    });
+    setRecurrenceDraft({
+      ...EMPTY_RECURRENCE_DRAFT,
+      anchorDate: todayKey
+    });
+    setIsAddTaskOverlayOpen(true);
   }
 
   function changeActiveDomain(domain: Domain | "all") {
@@ -2408,6 +3543,463 @@ export function TaskShell() {
     );
   }
 
+  function openTaskDetail(taskId: string) {
+    setSelectedTaskId(taskId);
+    setIsDetailOpen(true);
+  }
+
+  function renderWorkspaceModeSwitch() {
+    return (
+      <div className="workspace-mode-toggle" role="group" aria-label="Workspace mode">
+        <button
+          aria-pressed={workspaceView === "dashboard"}
+          className={`filter-chip ${workspaceView === "dashboard" ? "filter-chip--active" : ""}`}
+          onClick={() => setWorkspaceView("dashboard")}
+          type="button"
+        >
+          Dashboard
+          <span>{activeTasks.length}</span>
+        </button>
+        <button
+          aria-pressed={workspaceView === "review"}
+          className={`filter-chip ${workspaceView === "review" ? "filter-chip--active" : ""}`}
+          onClick={() => setWorkspaceView("review")}
+          type="button"
+        >
+          Review
+          <span>{forgottenThingsCount}</span>
+        </button>
+      </div>
+    );
+  }
+
+  function renderQuickCapture(className?: string) {
+    return (
+      <form className={`quick-capture ${className ?? ""}`.trim()} onSubmit={createInboxTask}>
+        <input
+          onChange={(event) => setQuickCapture(event.target.value)}
+          placeholder="Capture something before you forget it"
+          value={quickCapture}
+        />
+        <button className="primary-button" disabled={!quickCapture.trim()} type="submit">
+          Add to Inbox
+        </button>
+      </form>
+    );
+  }
+
+  function renderTaskCard(task: Task, options?: { draggable?: boolean; toned?: boolean }) {
+    const checklistCounts = checklistCountsByTask.get(task.id);
+    const areaName = task.area_id ? areaLookup.get(task.area_id)?.name : null;
+
+    return (
+      <button
+        className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${options?.toned ? `task-card--${task.domain}` : ""}`}
+        draggable={options?.draggable}
+        key={task.id}
+        onClick={() => openTaskDetail(task.id)}
+        onDragEnd={options?.draggable ? handleTaskDragEnd : undefined}
+        onDragStart={options?.draggable ? (event) => handleTaskDragStart(event, task.id) : undefined}
+        style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
+        type="button"
+      >
+        <div className="task-card__meta task-card__meta--wrap">
+          <div className="task-card__meta-group">
+            <span className={`domain-pill domain-pill--${task.domain}`}>{domainLabels[task.domain]}</span>
+            {areaName ? <span className="area-pill">{areaName}</span> : null}
+          </div>
+          <span className={`priority-pill priority-pill--${task.priority}`}>{priorityLabels[task.priority]}</span>
+        </div>
+        <h3>{task.title}</h3>
+        {task.description ? <p className="task-card__description">{task.description}</p> : null}
+        {checklistCounts?.total ? (
+          <p className="task-card__support">
+            {checklistCounts.completed}/{checklistCounts.total} checklist item
+            {checklistCounts.total === 1 ? "" : "s"}
+          </p>
+        ) : null}
+        {task.recurring_template_id ? (
+          <p className="task-card__support">
+            Repeats every {formatRecurrenceSummary(recurringTemplates.find((template) => template.id === task.recurring_template_id) ?? null)}
+          </p>
+        ) : null}
+        <div className="task-card__footer">
+          <span>{statusLabels[task.status]}</span>
+          <span>{formatTaskAttentionLabel(task)}</span>
+        </div>
+      </button>
+    );
+  }
+
+  function renderReviewTaskList(tasksToRender: Task[], emptyCopy: string) {
+    if (!tasksToRender.length) {
+      return (
+        <div className="empty-state empty-state--compact">
+          <p>{emptyCopy}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="review-task-list">
+        {tasksToRender.map((task) => {
+          const areaName = task.area_id ? areaLookup.get(task.area_id)?.name : null;
+
+          return (
+            <div className="review-task-row" key={task.id}>
+              <button className="review-task-row__main" onClick={() => openTaskDetail(task.id)} type="button">
+                <strong>{task.title}</strong>
+                <p>
+                  {statusLabels[task.status]}
+                  {areaName ? ` / ${areaName}` : ""}
+                  {formatTaskAttentionLabel(task) !== "No date yet"
+                    ? ` / ${formatTaskAttentionLabel(task)}`
+                    : ""}
+                </p>
+              </button>
+              <div className="review-task-row__actions">
+                {task.status === "done" ? (
+                  <button
+                    className="secondary-button"
+                    onClick={() => void reopenTask(task.id, "backlog")}
+                    type="button"
+                  >
+                    Reopen
+                  </button>
+                ) : (
+                  <>
+                    {task.recurring_template_id ? (
+                      <button
+                        className="secondary-button"
+                        onClick={() => void completeTaskById(task.id, "skip")}
+                        type="button"
+                      >
+                        Skip
+                      </button>
+                    ) : null}
+                    <button
+                      className="secondary-button"
+                      onClick={() => void completeTaskById(task.id, "complete")}
+                      type="button"
+                    >
+                      Complete
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderForgottenThingsPanel() {
+    return (
+      <section className="panel panel--soft forgotten-panel">
+        <div className="panel__header">
+          <div>
+            <p className="eyebrow">Forgotten things</p>
+            <h2>What needs attention again?</h2>
+          </div>
+          <span className="count-pill">{forgottenThingsCount}</span>
+        </div>
+        <div className="memory-grid">
+          <article className="memory-card">
+            <strong>Inbox aging</strong>
+            <span>{forgottenInboxTasks.length}</span>
+            <p>Quick captures that still need triage.</p>
+          </article>
+          <article className="memory-card">
+            <strong>Overdue</strong>
+            <span>{overdueTasks.length}</span>
+            <p>Tasks whose deadline has already passed.</p>
+          </article>
+          <article className="memory-card">
+            <strong>Follow up</strong>
+            <span>{dueFollowUpTasks.length}</span>
+            <p>Waiting items ready to resurface.</p>
+          </article>
+          <article className="memory-card">
+            <strong>Stale open loops</strong>
+            <span>{staleOpenTasks.length}</span>
+            <p>Open work with no date and no recent touch.</p>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
+  function renderReviewMode() {
+    const todayCommitments = reviewScopedTasks.filter((task) =>
+      ["today", "in_progress"].includes(task.status)
+    );
+    const recurringTasks = recurringTemplates.filter((template) => template.is_active);
+
+    return (
+      <section className="review-mode">
+        <section className="panel panel--soft review-hero">
+          <div className="review-hero__top">
+            <div>
+              <p className="eyebrow">Review mode</p>
+              <h2>{reviewFocus === "daily" ? "Daily briefing" : "Weekly review"}</h2>
+            </div>
+            <div className="review-hero__meta">
+              <span className={`count-pill ${dailyReviewIsFresh ? "count-pill--fresh" : ""}`}>
+                Daily {dailyReviewIsFresh ? "fresh" : "due"}
+              </span>
+              <span className={`count-pill ${weeklyReviewIsFresh ? "count-pill--fresh" : ""}`}>
+                Weekly {weeklyReviewIsFresh ? "fresh" : "due"}
+              </span>
+            </div>
+          </div>
+          <div className="review-focus-strip" role="group" aria-label="Review focus">
+            <button
+              aria-pressed={reviewFocus === "daily"}
+              className={`filter-chip ${reviewFocus === "daily" ? "filter-chip--active" : ""}`}
+              onClick={() => setReviewFocus("daily")}
+              type="button"
+            >
+              Daily
+              <span>{todayCommitments.length}</span>
+            </button>
+            <button
+              aria-pressed={reviewFocus === "weekly"}
+              className={`filter-chip ${reviewFocus === "weekly" ? "filter-chip--active" : ""}`}
+              onClick={() => setReviewFocus("weekly")}
+              type="button"
+            >
+              Weekly
+              <span>{forgottenThingsCount}</span>
+            </button>
+          </div>
+        </section>
+
+        {reviewFocus === "daily" ? (
+          <div className="review-grid">
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Inbox to triage</h2>
+                <span className="count-pill">{reviewScopedTasks.filter((task) => task.status === "inbox").length}</span>
+              </div>
+              {renderReviewTaskList(
+                reviewScopedTasks.filter((task) => task.status === "inbox"),
+                "Inbox is clear."
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Today commitments</h2>
+                <span className="count-pill">{todayCommitments.length}</span>
+              </div>
+              {renderReviewTaskList(todayCommitments, "No tasks committed for today yet.")}
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Needs attention</h2>
+                <span className="count-pill">
+                  {overdueTasks.length + dueFollowUpTasks.length + staleOpenTasks.length}
+                </span>
+              </div>
+              {renderReviewTaskList(
+                [...overdueTasks, ...dueFollowUpTasks, ...staleOpenTasks].slice(0, 8),
+                "Nothing urgent is slipping."
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Upcoming soon</h2>
+                <span className="count-pill">{upcomingSoonTasks.length + upcomingCalendarEvents.length}</span>
+              </div>
+              {renderReviewTaskList(upcomingSoonTasks, "No nearby task deadlines.")}
+              <div className="review-events">
+                {upcomingCalendarEvents.slice(0, 5).map((event) => (
+                  <button
+                    className="future-event"
+                    key={event.id}
+                    onClick={() => openCalendarEventDetail(event)}
+                    type="button"
+                  >
+                    <div>
+                      <strong>{event.summary}</strong>
+                      <p>{formatEventTimeRange(event)}</p>
+                    </div>
+                    <small>{event.sourceName ?? event.source}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel review-note-panel">
+              <div className="panel__header">
+                <h2>Close the loop</h2>
+              </div>
+              <label>
+                Note
+                <textarea
+                  onChange={(event) => setDailyReviewNote(event.target.value)}
+                  placeholder="What matters most today?"
+                  rows={4}
+                  value={dailyReviewNote}
+                />
+              </label>
+              <button
+                className="primary-button"
+                disabled={isReviewSaving}
+                onClick={() => void completeReview("daily")}
+                type="button"
+              >
+                {isReviewSaving ? "Saving..." : "Mark daily briefing complete"}
+              </button>
+            </section>
+          </div>
+        ) : (
+          <div className="review-grid">
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Forgotten things</h2>
+                <span className="count-pill">{forgottenThingsCount}</span>
+              </div>
+              <div className="memory-grid memory-grid--dense">
+                <article className="memory-card">
+                  <strong>Inbox aging</strong>
+                  <span>{forgottenInboxTasks.length}</span>
+                  <p>Quick captures older than a day.</p>
+                </article>
+                <article className="memory-card">
+                  <strong>Overdue</strong>
+                  <span>{overdueTasks.length}</span>
+                  <p>Deadlines that have already passed.</p>
+                </article>
+                <article className="memory-card">
+                  <strong>Waiting</strong>
+                  <span>{dueFollowUpTasks.length}</span>
+                  <p>Follow-ups due today or stale.</p>
+                </article>
+                <article className="memory-card">
+                  <strong>Stale open</strong>
+                  <span>{staleOpenTasks.length}</span>
+                  <p>Open work with no date and no recent touch.</p>
+                </article>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Area sweep</h2>
+                <span className="count-pill">{activeAreas.length}</span>
+              </div>
+              <form className="inline-form" onSubmit={addArea}>
+                <input
+                  onChange={(event) => setAreaDraftName(event.target.value)}
+                  placeholder="Add an area like Health or Home"
+                  value={areaDraftName}
+                />
+                <button className="secondary-button" disabled={isAreaBusy || !areaDraftName.trim()} type="submit">
+                  Add area
+                </button>
+              </form>
+              <button className="secondary-button" disabled={isAreaBusy} onClick={() => void addStarterAreas()} type="button">
+                Add starter pack
+              </button>
+              <div className="area-stack">
+                {areaReviewBuckets.map(({ area, tasks: areaTasks }) => (
+                  <div className="area-row" key={area.id}>
+                    <div>
+                      <strong>{area.name}</strong>
+                      <p>{areaTasks.length} open task{areaTasks.length === 1 ? "" : "s"}</p>
+                    </div>
+                    <button className="secondary-button" onClick={() => void toggleAreaArchived(area)} type="button">
+                      {area.archived ? "Restore" : "Archive"}
+                    </button>
+                  </div>
+                ))}
+                {!areaReviewBuckets.length ? (
+                  <div className="empty-state empty-state--compact">
+                    <p>Add areas to review responsibilities across spaces.</p>
+                  </div>
+                ) : null}
+                {tasksWithoutArea.length ? (
+                  <div className="area-row area-row--warning">
+                    <div>
+                      <strong>Unassigned tasks</strong>
+                      <p>{tasksWithoutArea.length} task{tasksWithoutArea.length === 1 ? "" : "s"} still need an area.</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Loose ends</h2>
+                <span className="count-pill">{dueFollowUpTasks.length + staleOpenTasks.length}</span>
+              </div>
+              {renderReviewTaskList([...dueFollowUpTasks, ...staleOpenTasks], "No loose ends are lingering.")}
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Recurring routines</h2>
+                <span className="count-pill">{recurringTasks.length}</span>
+              </div>
+              <div className="routine-list">
+                {recurringTasks.map((template) => (
+                  <div className="routine-row" key={template.id}>
+                    <div>
+                      <strong>{template.title}</strong>
+                      <p>{formatRecurrenceSummary(template)}</p>
+                    </div>
+                    <span className={`domain-pill domain-pill--${template.domain}`}>{domainLabels[template.domain]}</span>
+                  </div>
+                ))}
+                {!recurringTasks.length ? (
+                  <div className="empty-state empty-state--compact">
+                    <p>No recurring routines yet.</p>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel__header">
+                <h2>Wins from the last 7 days</h2>
+                <span className="count-pill">{recentWins.length}</span>
+              </div>
+              {renderReviewTaskList(recentWins.slice(0, 8), "No completed wins logged yet.")}
+            </section>
+
+            <section className="panel review-note-panel">
+              <div className="panel__header">
+                <h2>Wrap the week</h2>
+              </div>
+              <label>
+                Note
+                <textarea
+                  onChange={(event) => setWeeklyReviewNote(event.target.value)}
+                  placeholder="What did you notice this week?"
+                  rows={4}
+                  value={weeklyReviewNote}
+                />
+              </label>
+              <button
+                className="primary-button"
+                disabled={isReviewSaving}
+                onClick={() => void completeReview("weekly")}
+                type="button"
+              >
+                {isReviewSaving ? "Saving..." : "Mark weekly review complete"}
+              </button>
+            </section>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderAccountPanel() {
     return (
       <section className="panel">
@@ -2682,14 +4274,15 @@ export function TaskShell() {
           <div className="mobile-section-header">
             <div>
               <p className="eyebrow">Tasks</p>
-              <h2>Plan the day</h2>
+              <h2>Capture and plan</h2>
             </div>
-            <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+            <button className="primary-button" onClick={openAddTaskOverlay} type="button">
               Add task
             </button>
           </div>
 
           <section className="panel mobile-tools">
+            {renderQuickCapture("quick-capture--mobile")}
             <label>
               Filter tasks
               <input
@@ -2723,33 +4316,9 @@ export function TaskShell() {
             </div>
             <div className="task-list task-list--mobile">
               {mobileTaskGroup?.tasks.length ? (
-                mobileTaskGroup.tasks.map((task) => (
-                  <button
-                    className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
-                    key={task.id}
-                    onClick={() => {
-                      setSelectedTaskId(task.id);
-                      setIsDetailOpen(true);
-                    }}
-                    style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
-                    type="button"
-                  >
-                    <div className="task-card__meta">
-                      <span className={`domain-pill domain-pill--${task.domain}`}>
-                        {domainLabels[task.domain]}
-                      </span>
-                      <span className={`priority-pill priority-pill--${task.priority}`}>
-                        {priorityLabels[task.priority]}
-                      </span>
-                    </div>
-                    <h3>{task.title}</h3>
-                    {task.description ? <p className="task-card__description">{task.description}</p> : null}
-                    <div className="task-card__footer">
-                      <span>{statusLabels[task.status]}</span>
-                      <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
-                    </div>
-                  </button>
-                ))
+                mobileTaskGroup.tasks.map((task) =>
+                  renderTaskCard(task, { toned: activeDomain === "all" })
+                )
               ) : (
                 <div className="empty-state">
                   <p>No tasks in this lane.</p>
@@ -2890,6 +4459,16 @@ export function TaskShell() {
           </section>
         </section>
 
+        <section className="mobile-pane" hidden={mobileSection !== "review"}>
+          <div className="mobile-section-header">
+            <div>
+              <p className="eyebrow">Review</p>
+              <h2>Remember what slipped</h2>
+            </div>
+          </div>
+          {renderReviewMode()}
+        </section>
+
         <section className="mobile-pane mobile-pane--more" hidden={mobileSection !== "more"}>
           <div className="mobile-section-header">
             <div>
@@ -2958,15 +4537,17 @@ export function TaskShell() {
         <div className="workspace__top">
           <header className="workspace__header">
             <div>
-              <p className="eyebrow">Dashboard</p>
-              <h2>Daily command center</h2>
+              <p className="eyebrow">{workspaceView === "dashboard" ? "Dashboard" : "Review"}</p>
+              <h2>{workspaceView === "dashboard" ? "Daily command center" : "Memory scaffolding"}</h2>
             </div>
+            {renderWorkspaceModeSwitch()}
           </header>
 
           <div className="workspace__toolbar">
             {renderWebSearchForm()}
 
             <div className="workspace__actions">
+              {renderQuickCapture()}
               <input
                 className="search-input"
                 onChange={(event) => setSearch(event.target.value)}
@@ -2974,7 +4555,7 @@ export function TaskShell() {
                 value={search}
               />
               {renderWorkChatTrigger()}
-              <button className="primary-button" onClick={() => setIsAddTaskOverlayOpen(true)} type="button">
+              <button className="primary-button" onClick={openAddTaskOverlay} type="button">
                 Add task
               </button>
             </div>
@@ -2993,241 +4574,225 @@ export function TaskShell() {
 
         <div className="scroll-shell">
           <div className="workspace__content scroll-fade">
-            <section className="board">
-              {groupedTasks.map(({ status, tasks: statusTasks }) => (
-                <article
-                  className={`board-column panel ${dragOverStatus === status ? "board-column--drag-over" : ""}`}
-                  key={status}
-                  onDragLeave={() => handleColumnDragLeave(status)}
-                  onDragOver={(event) => handleColumnDragOver(event, status)}
-                  onDrop={(event) => void handleColumnDrop(event, status)}
-                >
-                  <div className="panel__header">
-                    <h2>{statusLabels[status]}</h2>
-                    <span className="count-pill">{statusTasks.length}</span>
-                  </div>
-                  <div className="task-list scroll-fade">
-                    {statusTasks.map((task) => (
-                      <button
-                        className={`task-card ${selectedTaskId === task.id ? "task-card--selected" : ""} ${draggedTaskId === task.id ? "task-card--dragging" : ""} ${activeDomain === "all" ? `task-card--${task.domain}` : ""}`}
-                        draggable
-                        onDragEnd={handleTaskDragEnd}
-                        onDragStart={(event) => handleTaskDragStart(event, task.id)}
-                        key={task.id}
-                        onClick={() => {
-                          setSelectedTaskId(task.id);
-                          setIsDetailOpen(true);
-                        }}
-                        style={{ viewTransitionName: `task-${toViewTransitionToken(task.id)}` }}
-                        type="button"
-                      >
-                        <div className="task-card__meta">
-                          <span className={`domain-pill domain-pill--${task.domain}`}>
-                            {domainLabels[task.domain]}
-                          </span>
-                          <span className={`priority-pill priority-pill--${task.priority}`}>
-                            {priorityLabels[task.priority]}
-                          </span>
-                        </div>
-                        <h3>{task.title}</h3>
-                        {task.description ? <p className="task-card__description">{task.description}</p> : null}
-                        <div className="task-card__footer">
-                          <span>{statusLabels[task.status]}</span>
-                          <span>{task.due_date ? formatDate(task.due_date) : "No deadline"}</span>
-                        </div>
-                      </button>
-                    ))}
-                    {!statusTasks.length ? (
-                      <div className="empty-state">
-                        <p>No tasks here yet.</p>
+            {workspaceView === "dashboard" ? (
+              <>
+                {renderForgottenThingsPanel()}
+
+                <section className="board">
+                  {groupedTasks.map(({ status, tasks: statusTasks }) => (
+                    <article
+                      className={`board-column panel ${dragOverStatus === status ? "board-column--drag-over" : ""}`}
+                      key={status}
+                      onDragLeave={() => handleColumnDragLeave(status)}
+                      onDragOver={(event) => handleColumnDragOver(event, status)}
+                      onDrop={(event) => void handleColumnDrop(event, status)}
+                    >
+                      <div className="panel__header">
+                        <h2>{statusLabels[status]}</h2>
+                        <span className="count-pill">{statusTasks.length}</span>
                       </div>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
-            </section>
-
-            <section className="panel calendar-panel">
-              <div className="calendar-panel__top">
-                <div className="panel__header">
-                  <h2>Calendar</h2>
-                  <span className="count-pill">{visibleCalendarEvents.length}</span>
-                </div>
-
-                <div className="calendar-panel__actions">
-                  <button
-                    className="secondary-button"
-                    disabled={!calendarStatus.connected}
-                    onClick={() => setIsEventOverlayOpen(true)}
-                    type="button"
-                  >
-                    New calendar event
-                  </button>
-                </div>
-              </div>
-
-              <div className="calendar-panel__body">
-                <div className="calendar-grid">
-                  <section className="calendar-card">
-                    <div className="calendar-card__header">
-                      <div>
-                        <p className="eyebrow">Today</p>
-                        <h3>{formatDayHeading(new Date())}</h3>
+                      <div className="task-list scroll-fade">
+                        {statusTasks.map((task) =>
+                          renderTaskCard(task, {
+                            draggable: task.status !== "done",
+                            toned: activeDomain === "all"
+                          })
+                        )}
+                        {!statusTasks.length ? (
+                          <div className="empty-state">
+                            <p>No tasks here yet.</p>
+                          </div>
+                        ) : null}
                       </div>
+                    </article>
+                  ))}
+                </section>
+
+                <section className="panel calendar-panel">
+                  <div className="calendar-panel__top">
+                    <div className="panel__header">
+                      <h2>Calendar</h2>
+                      <span className="count-pill">{visibleCalendarEvents.length}</span>
                     </div>
 
-                    <div className="calendar-card__body">
-                      {!session ? (
-                        <div className="empty-state">
-                          <p>Sign in to load your calendar.</p>
-                        </div>
-                      ) : !hasCalendarSources ? (
-                        <div className="empty-state">
-                          <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
-                        </div>
-                      ) : (
-                        <div className="today-view">
-                          {todayAllDayEvents.length ? (
-                            <div className="all-day-strip">
-                              <span className="all-day-strip__label">All day</span>
-                              <div className="all-day-strip__items">
-                                {todayAllDayEvents.map((event) => (
-                                  <button
-                                    className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
-                                    key={event.id}
-                                    onClick={() => openCalendarEventDetail(event)}
-                                    style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
-                                    type="button"
-                                  >
-                                    <span>{event.summary}</span>
-                                    <small>{event.sourceName ?? event.source}</small>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
+                    <div className="calendar-panel__actions">
+                      <button
+                        className="secondary-button"
+                        disabled={!calendarStatus.connected}
+                        onClick={() => setIsEventOverlayOpen(true)}
+                        type="button"
+                      >
+                        New calendar event
+                      </button>
+                    </div>
+                  </div>
 
-                          <div className="timeline">
-                            <div className="timeline__hours">
-                              {timelineHours.map((hour) => (
-                                <div className="timeline-row__hour" key={hour}>
-                                  {formatHour(hour)}
-                                </div>
-                              ))}
-                            </div>
-                            <div className="timeline__body">
-                              {timelineHours.map((hour) => (
-                                <div className="timeline-slot" key={hour}>
-                                  <div className="timeline-slot__quarter timeline-slot__quarter--quarter" />
-                                  <div className="timeline-slot__quarter timeline-slot__quarter--half" />
-                                  <div className="timeline-slot__quarter timeline-slot__quarter--three-quarters" />
-                                </div>
-                              ))}
+                  <div className="calendar-panel__body">
+                    <div className="calendar-grid">
+                      <section className="calendar-card">
+                        <div className="calendar-card__header">
+                          <div>
+                            <p className="eyebrow">Today</p>
+                            <h3>{formatDayHeading(new Date())}</h3>
+                          </div>
+                        </div>
 
-                              {nowLineOffset !== null ? (
-                                <div
-                                  className="timeline-now-line"
-                                  style={{
-                                    top: `${nowLineOffset}%`
-                                  }}
-                                >
-                                  <span className="timeline-now-line__label">{formatNow(now)}</span>
-                                  <span className="timeline-now-line__rule" />
+                        <div className="calendar-card__body">
+                          {!session ? (
+                            <div className="empty-state">
+                              <p>Sign in to load your calendar.</p>
+                            </div>
+                          ) : !hasCalendarSources ? (
+                            <div className="empty-state">
+                              <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+                            </div>
+                          ) : (
+                            <div className="today-view">
+                              {todayAllDayEvents.length ? (
+                                <div className="all-day-strip">
+                                  <span className="all-day-strip__label">All day</span>
+                                  <div className="all-day-strip__items">
+                                    {todayAllDayEvents.map((event) => (
+                                      <button
+                                        className={`calendar-pill ${activeDomain === "all" ? `calendar-pill--${event.domain}` : ""}`}
+                                        key={event.id}
+                                        onClick={() => openCalendarEventDetail(event)}
+                                        style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
+                                        type="button"
+                                      >
+                                        <span>{event.summary}</span>
+                                        <small>{event.sourceName ?? event.source}</small>
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
                               ) : null}
 
-                              {timelineEventLayouts.length ? (
-                                <div className="timeline__events">
-                                  {timelineEventLayouts.map(
-                                    ({ event, topPercent, heightPercent, column, totalColumns }) => (
-                                      <button
-                                        className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
-                                        key={event.id}
-                                        onClick={() => openCalendarEventDetail(event)}
-                                        style={{
-                                          ...getTimelineEventStyle(
-                                            topPercent,
-                                            heightPercent,
-                                            column,
-                                            totalColumns
-                                          ),
-                                          viewTransitionName: `event-${toViewTransitionToken(event.id)}`
-                                        }}
-                                        type="button"
-                                      >
-                                        <div className="timeline-event__header">
-                                          <h4>{event.summary}</h4>
-                                          <span>{formatEventTimeRange(event)}</span>
-                                        </div>
-                                        <p>{event.sourceName ?? event.source}</p>
-                                      </button>
-                                    )
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="timeline-row__empty timeline-row__empty--full" />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </section>
-
-                  <section className="calendar-card">
-                    <div className="calendar-card__header">
-                      <div>
-                        <p className="eyebrow">Next 5 Days</p>
-                        <h3>Upcoming</h3>
-                      </div>
-                    </div>
-
-                    <div className="calendar-card__body">
-                      {!session ? (
-                        <div className="empty-state">
-                          <p>Sign in to load your calendar.</p>
-                        </div>
-                      ) : !hasCalendarSources ? (
-                        <div className="empty-state">
-                          <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
-                        </div>
-                      ) : (
-                        <div className="future-days">
-                          {nextFiveDayBuckets.map((bucket) => (
-                            <section className="future-day" key={bucket.date.toISOString()}>
-                              <div className="future-day__header">
-                                <h4>{formatDayHeading(bucket.date)}</h4>
-                              </div>
-                              {bucket.events.length ? (
-                                <div className="future-day__events">
-                                  {bucket.events.map((event) => (
-                                    <button
-                                      className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
-                                      key={event.id}
-                                      onClick={() => openCalendarEventDetail(event)}
-                                      style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
-                                      type="button"
-                                    >
-                                      <div>
-                                        <strong>{event.summary}</strong>
-                                        <p>{formatEventTimeRange(event)}</p>
-                                      </div>
-                                      <small>{event.sourceName ?? event.source}</small>
-                                    </button>
+                              <div className="timeline">
+                                <div className="timeline__hours">
+                                  {timelineHours.map((hour) => (
+                                    <div className="timeline-row__hour" key={hour}>
+                                      {formatHour(hour)}
+                                    </div>
                                   ))}
                                 </div>
-                              ) : (
-                                <p className="muted">No events scheduled.</p>
-                              )}
-                            </section>
-                          ))}
+                                <div className="timeline__body">
+                                  {timelineHours.map((hour) => (
+                                    <div className="timeline-slot" key={hour}>
+                                      <div className="timeline-slot__quarter timeline-slot__quarter--quarter" />
+                                      <div className="timeline-slot__quarter timeline-slot__quarter--half" />
+                                      <div className="timeline-slot__quarter timeline-slot__quarter--three-quarters" />
+                                    </div>
+                                  ))}
+
+                                  {nowLineOffset !== null ? (
+                                    <div
+                                      className="timeline-now-line"
+                                      style={{
+                                        top: `${nowLineOffset}%`
+                                      }}
+                                    >
+                                      <span className="timeline-now-line__label">{formatNow(now)}</span>
+                                      <span className="timeline-now-line__rule" />
+                                    </div>
+                                  ) : null}
+
+                                  {timelineEventLayouts.length ? (
+                                    <div className="timeline__events">
+                                      {timelineEventLayouts.map(
+                                        ({ event, topPercent, heightPercent, column, totalColumns }) => (
+                                          <button
+                                            className={`timeline-event ${activeDomain === "all" ? `timeline-event--${event.domain}` : ""}`}
+                                            key={event.id}
+                                            onClick={() => openCalendarEventDetail(event)}
+                                            style={{
+                                              ...getTimelineEventStyle(
+                                                topPercent,
+                                                heightPercent,
+                                                column,
+                                                totalColumns
+                                              ),
+                                              viewTransitionName: `event-${toViewTransitionToken(event.id)}`
+                                            }}
+                                            type="button"
+                                          >
+                                            <div className="timeline-event__header">
+                                              <h4>{event.summary}</h4>
+                                              <span>{formatEventTimeRange(event)}</span>
+                                            </div>
+                                            <p>{event.sourceName ?? event.source}</p>
+                                          </button>
+                                        )
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="timeline-row__empty timeline-row__empty--full" />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </section>
+
+                      <section className="calendar-card">
+                        <div className="calendar-card__header">
+                          <div>
+                            <p className="eyebrow">Next 5 Days</p>
+                            <h3>Upcoming</h3>
+                          </div>
+                        </div>
+
+                        <div className="calendar-card__body">
+                          {!session ? (
+                            <div className="empty-state">
+                              <p>Sign in to load your calendar.</p>
+                            </div>
+                          ) : !hasCalendarSources ? (
+                            <div className="empty-state">
+                              <p>Connect Google Calendar or add an ICS feed to populate this view.</p>
+                            </div>
+                          ) : (
+                            <div className="future-days">
+                              {nextFiveDayBuckets.map((bucket) => (
+                                <section className="future-day" key={bucket.date.toISOString()}>
+                                  <div className="future-day__header">
+                                    <h4>{formatDayHeading(bucket.date)}</h4>
+                                  </div>
+                                  {bucket.events.length ? (
+                                    <div className="future-day__events">
+                                      {bucket.events.map((event) => (
+                                        <button
+                                          className={`future-event ${activeDomain === "all" ? `future-event--${event.domain}` : ""}`}
+                                          key={event.id}
+                                          onClick={() => openCalendarEventDetail(event)}
+                                          style={{ viewTransitionName: `event-${toViewTransitionToken(event.id)}` }}
+                                          type="button"
+                                        >
+                                          <div>
+                                            <strong>{event.summary}</strong>
+                                            <p>{formatEventTimeRange(event)}</p>
+                                          </div>
+                                          <small>{event.sourceName ?? event.source}</small>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="muted">No events scheduled.</p>
+                                  )}
+                                </section>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </section>
                     </div>
-                  </section>
-                </div>
-              </div>
-            </section>
+                  </div>
+                </section>
+              </>
+            ) : (
+              renderReviewMode()
+            )}
           </div>
         </div>
       </section>
@@ -3312,7 +4877,7 @@ export function TaskShell() {
                   }
                   value={draft.status}
                 >
-                  {STATUS_OPTIONS.map((status) => (
+                  {EDITABLE_STATUS_OPTIONS.map((status) => (
                     <option key={status} value={status}>
                       {statusLabels[status]}
                     </option>
@@ -3338,6 +4903,38 @@ export function TaskShell() {
                 </select>
               </label>
               <label>
+                Area
+                <select
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      area_id: event.target.value || null
+                    }))
+                  }
+                  value={draft.area_id ?? ""}
+                >
+                  <option value="">No area yet</option>
+                  {activeAreas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Planned date
+                <input
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      planned_date: event.target.value || null
+                    }))
+                  }
+                  type="date"
+                  value={draft.planned_date ?? ""}
+                />
+              </label>
+              <label>
                 Due date
                 <input
                   onChange={(event) =>
@@ -3350,6 +4947,95 @@ export function TaskShell() {
                   value={draft.due_date ?? ""}
                 />
               </label>
+              {draft.status === "waiting" ? (
+                <label>
+                  Follow-up date
+                  <input
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        follow_up_date: event.target.value || null
+                      }))
+                    }
+                    type="date"
+                    value={draft.follow_up_date ?? ""}
+                  />
+                </label>
+              ) : null}
+            </div>
+            <div className="detail-block">
+              <label className="checkbox-row">
+                <input
+                  checked={recurrenceDraft.enabled}
+                  onChange={(event) =>
+                    setRecurrenceDraft((current) => ({ ...current, enabled: event.target.checked }))
+                  }
+                  type="checkbox"
+                />
+                <span>Make this recurring</span>
+              </label>
+              {recurrenceDraft.enabled ? (
+                <div className="split-grid">
+                  <label>
+                    Every
+                    <input
+                      min={1}
+                      onChange={(event) =>
+                        setRecurrenceDraft((current) => ({
+                          ...current,
+                          intervalCount: Number(event.target.value) || 1
+                        }))
+                      }
+                      type="number"
+                      value={recurrenceDraft.intervalCount}
+                    />
+                  </label>
+                  <label>
+                    Unit
+                    <select
+                      onChange={(event) =>
+                        setRecurrenceDraft((current) => ({
+                          ...current,
+                          intervalUnit: event.target.value as RecurrenceUnit
+                        }))
+                      }
+                      value={recurrenceDraft.intervalUnit}
+                    >
+                      {RECURRENCE_UNITS.map((unit) => (
+                        <option key={unit} value={unit}>
+                          {unit === "day" ? "Days" : unit === "week" ? "Weeks" : "Months"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Anchor date
+                    <input
+                      onChange={(event) =>
+                        setRecurrenceDraft((current) => ({
+                          ...current,
+                          anchorDate: event.target.value
+                        }))
+                      }
+                      type="date"
+                      value={recurrenceDraft.anchorDate}
+                    />
+                  </label>
+                  <label>
+                    Due offset (days)
+                    <input
+                      onChange={(event) =>
+                        setRecurrenceDraft((current) => ({
+                          ...current,
+                          dueOffsetDays: Number(event.target.value) || 0
+                        }))
+                      }
+                      type="number"
+                      value={recurrenceDraft.dueOffsetDays}
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
             <button className="primary-button" disabled={isSaving || isLoading} type="submit">
               {isSaving ? "Saving..." : "Add task"}
@@ -3359,7 +5045,7 @@ export function TaskShell() {
       ) : null}
 
       {isDetailOpen ? (
-        <Overlay onClose={() => setIsDetailOpen(false)} title="Task detail" variant="center">
+        <Overlay onClose={() => setIsDetailOpen(false)} title="Task detail" variant="wide">
           {selectedTask ? (
             <div className="detail__content">
               <label>
@@ -3398,7 +5084,7 @@ export function TaskShell() {
                   }
                   value={selectedTask.status}
                 >
-                  {STATUS_OPTIONS.map((status) => (
+                  {(selectedTask.status === "done" ? STATUS_OPTIONS : EDITABLE_STATUS_OPTIONS).map((status) => (
                     <option key={status} value={status}>
                       {statusLabels[status]}
                     </option>
@@ -3421,6 +5107,30 @@ export function TaskShell() {
                 </select>
               </label>
               <label>
+                Area
+                <select
+                  onChange={(event) => void updateSelectedTask({ area_id: event.target.value || null })}
+                  value={selectedTask.area_id ?? ""}
+                >
+                  <option value="">No area yet</option>
+                  {activeAreas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Planned date
+                <input
+                  onChange={(event) =>
+                    void updateSelectedTask({ planned_date: event.target.value || null })
+                  }
+                  type="date"
+                  value={selectedTask.planned_date ?? ""}
+                />
+              </label>
+              <label>
                 Due date
                 <input
                   onChange={(event) =>
@@ -3430,6 +5140,48 @@ export function TaskShell() {
                   value={selectedTask.due_date ?? ""}
                 />
               </label>
+              {selectedTask.status === "waiting" ? (
+                <label>
+                  Follow-up date
+                  <input
+                    onChange={(event) =>
+                      void updateSelectedTask({ follow_up_date: event.target.value || null })
+                    }
+                    type="date"
+                    value={selectedTask.follow_up_date ?? ""}
+                  />
+                </label>
+              ) : null}
+              <div className="detail-actions">
+                {selectedTask.status === "done" ? (
+                  <button
+                    className="secondary-button"
+                    onClick={() => void reopenTask(selectedTask.id, "backlog")}
+                    type="button"
+                  >
+                    Reopen task
+                  </button>
+                ) : (
+                  <>
+                    {selectedTask.recurring_template_id ? (
+                      <button
+                        className="secondary-button"
+                        onClick={() => void completeTaskById(selectedTask.id, "skip")}
+                        type="button"
+                      >
+                        Skip and roll forward
+                      </button>
+                    ) : null}
+                    <button
+                      className="primary-button"
+                      onClick={() => void completeTaskById(selectedTask.id, "complete")}
+                      type="button"
+                    >
+                      Complete task
+                    </button>
+                  </>
+                )}
+              </div>
               <button
                 className="secondary-button"
                 disabled={!canSyncSelectedTask || isCalendarBusy}
@@ -3455,6 +5207,125 @@ export function TaskShell() {
               {!selectedTask.due_date ? (
                 <p className="muted">Add a due date to sync this task as an all-day event.</p>
               ) : null}
+              <form className="detail-block" onSubmit={saveRecurringSettings}>
+                <div className="panel__header">
+                  <h2>Recurrence</h2>
+                  {selectedRecurringTemplate ? (
+                    <span className="count-pill">{selectedRecurringTemplate.is_active ? "On" : "Paused"}</span>
+                  ) : null}
+                </div>
+                <label className="checkbox-row">
+                  <input
+                    checked={recurrenceDraft.enabled}
+                    onChange={(event) =>
+                      setRecurrenceDraft((current) => ({ ...current, enabled: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>Repeat this task</span>
+                </label>
+                {recurrenceDraft.enabled ? (
+                  <div className="split-grid">
+                    <label>
+                      Every
+                      <input
+                        min={1}
+                        onChange={(event) =>
+                          setRecurrenceDraft((current) => ({
+                            ...current,
+                            intervalCount: Number(event.target.value) || 1
+                          }))
+                        }
+                        type="number"
+                        value={recurrenceDraft.intervalCount}
+                      />
+                    </label>
+                    <label>
+                      Unit
+                      <select
+                        onChange={(event) =>
+                          setRecurrenceDraft((current) => ({
+                            ...current,
+                            intervalUnit: event.target.value as RecurrenceUnit
+                          }))
+                        }
+                        value={recurrenceDraft.intervalUnit}
+                      >
+                        {RECURRENCE_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>
+                            {unit === "day" ? "Days" : unit === "week" ? "Weeks" : "Months"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Anchor date
+                      <input
+                        onChange={(event) =>
+                          setRecurrenceDraft((current) => ({
+                            ...current,
+                            anchorDate: event.target.value
+                          }))
+                        }
+                        type="date"
+                        value={recurrenceDraft.anchorDate}
+                      />
+                    </label>
+                    <label>
+                      Due offset (days)
+                      <input
+                        onChange={(event) =>
+                          setRecurrenceDraft((current) => ({
+                            ...current,
+                            dueOffsetDays: Number(event.target.value) || 0
+                          }))
+                        }
+                        type="number"
+                        value={recurrenceDraft.dueOffsetDays}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+                <button className="secondary-button" disabled={isRecurringBusy} type="submit">
+                  {isRecurringBusy ? "Saving..." : "Save recurrence"}
+                </button>
+              </form>
+              <div className="detail-block">
+                <div className="panel__header">
+                  <h2>Checklist</h2>
+                  <span className="count-pill">{selectedTaskChecklist.length}</span>
+                </div>
+                <form className="inline-form" onSubmit={addChecklistItem}>
+                  <input
+                    onChange={(event) => setChecklistDraftLabel(event.target.value)}
+                    placeholder="Add a hidden step"
+                    value={checklistDraftLabel}
+                  />
+                  <button className="secondary-button" disabled={isChecklistBusy || !checklistDraftLabel.trim()} type="submit">
+                    Add
+                  </button>
+                </form>
+                <div className="checklist">
+                  {selectedTaskChecklist.map((item) => (
+                    <div className="checklist__item" key={item.id}>
+                      <button className="checklist__toggle" onClick={() => void toggleChecklistItem(item)} type="button">
+                        {item.completed_at ? "Done" : "Open"}
+                      </button>
+                      <span className={item.completed_at ? "checklist__label checklist__label--done" : "checklist__label"}>
+                        {item.label}
+                      </span>
+                      <button className="icon-button" onClick={() => void removeChecklistItem(item.id)} type="button">
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  {!selectedTaskChecklist.length ? (
+                    <div className="empty-state empty-state--compact">
+                      <p>No checklist items yet.</p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
               <button className="danger-button" onClick={() => void deleteSelectedTask()} type="button">
                 Delete task
               </button>
@@ -4249,10 +6120,15 @@ function getInclusiveAllDayDate(value: string) {
 
 function getNormalizedTaskStatus(
   status: TaskStatus,
+  plannedDate: string | null | undefined,
   dueDate: string | null | undefined,
   todayKey: string
 ) {
-  if (dueDate === todayKey && status === "backlog") {
+  if (status === "inbox" || status === "waiting" || status === "done") {
+    return status;
+  }
+
+  if ((plannedDate === todayKey || dueDate === todayKey) && status === "backlog") {
     return "today";
   }
 
@@ -4262,12 +6138,20 @@ function getNormalizedTaskStatus(
 function getNormalizedTaskPatch(task: Task, patch: Partial<TaskDraft>, todayKey: string) {
   const nextStatus = getNormalizedTaskStatus(
     patch.status ?? task.status,
+    patch.planned_date === undefined ? task.planned_date : patch.planned_date,
     patch.due_date === undefined ? task.due_date : patch.due_date,
     todayKey
   );
 
   return {
     ...patch,
+    area_id: patch.area_id === undefined ? task.area_id ?? null : patch.area_id,
+    follow_up_date:
+      nextStatus === "waiting"
+        ? patch.follow_up_date === undefined
+          ? task.follow_up_date ?? null
+          : patch.follow_up_date
+        : null,
     status: nextStatus
   };
 }
@@ -4282,18 +6166,20 @@ function getTaskLifecyclePatch(task: Task, patch: Partial<Task>) {
   if (nextStatus === "done") {
     return {
       ...patch,
+      completion_kind: (patch.completion_kind as TaskCompletionKind | undefined) ?? "completed",
       completed_at: task.status === "done" ? task.completed_at ?? new Date().toISOString() : new Date().toISOString()
     };
   }
 
   return {
     ...patch,
+    completion_kind: nextStatus === task.status ? task.completion_kind ?? null : null,
     completed_at: nextStatus === task.status ? task.completed_at ?? null : null
   };
 }
 
 function shouldAutoMoveTaskToToday(task: Task, todayKey: string) {
-  return task.due_date === todayKey && task.status === "backlog";
+  return task.status === "backlog" && (task.planned_date === todayKey || task.due_date === todayKey);
 }
 
 function isArchivedTask(task: Task, now: Date) {
@@ -4330,14 +6216,179 @@ function toViewTransitionToken(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
-function getDueDateDistanceFromToday(dueDate: string | null, todayKey: string) {
-  if (!dueDate) {
+function getTaskSortTimestamp(task: Task) {
+  const value = task.updated_at ?? task.created_at ?? null;
+  return value ? new Date(value).getTime() : 0;
+}
+
+function getTaskAttentionDate(task: Task) {
+  if (task.status === "waiting") {
+    return task.follow_up_date ?? null;
+  }
+
+  return task.planned_date ?? task.due_date ?? null;
+}
+
+function getTaskDistanceFromToday(task: Task, todayKey: string) {
+  const attentionDate = getTaskAttentionDate(task);
+
+  if (!attentionDate) {
     return Number.POSITIVE_INFINITY;
   }
 
-  const dueTime = parseEventDate(dueDate).getTime();
+  const dueTime = parseEventDate(attentionDate).getTime();
   const todayTime = parseEventDate(todayKey).getTime();
   return Math.abs(dueTime - todayTime);
+}
+
+function getDaysSinceTimestamp(value: string | null | undefined, now: Date) {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const date = new Date(value);
+  return Math.floor((now.getTime() - date.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function getTaskAgeInDays(task: Task, now: Date) {
+  return getDaysSinceTimestamp(task.updated_at ?? task.created_at ?? null, now);
+}
+
+function isDateWithinDays(value: string, todayKey: string, days: number) {
+  const delta = parseEventDate(value).getTime() - parseEventDate(todayKey).getTime();
+  return delta >= 0 && delta <= days * 24 * 60 * 60 * 1000;
+}
+
+function formatTaskAttentionLabel(task: Task) {
+  if (task.status === "inbox") {
+    return "Needs triage";
+  }
+
+  if (task.status === "waiting" && task.follow_up_date) {
+    return `Follow up ${formatDate(task.follow_up_date)}`;
+  }
+
+  if (task.planned_date && task.due_date && task.planned_date !== task.due_date) {
+    return `Planned ${formatDate(task.planned_date)} / Due ${formatDate(task.due_date)}`;
+  }
+
+  if (task.planned_date) {
+    return `Planned ${formatDate(task.planned_date)}`;
+  }
+
+  if (task.due_date) {
+    return `Due ${formatDate(task.due_date)}`;
+  }
+
+  return "No date yet";
+}
+
+function getPreparedTaskValues(taskDraft: TaskDraft, todayKey: string) {
+  const nextStatus = getNormalizedTaskStatus(
+    taskDraft.status,
+    taskDraft.planned_date,
+    taskDraft.due_date,
+    todayKey
+  );
+
+  return {
+    title: taskDraft.title.trim(),
+    description: taskDraft.description?.trim() || null,
+    domain: taskDraft.domain,
+    status: nextStatus,
+    priority: taskDraft.priority,
+    planned_date: taskDraft.planned_date ?? null,
+    due_date: taskDraft.due_date ?? null,
+    follow_up_date: nextStatus === "waiting" ? taskDraft.follow_up_date ?? null : null,
+    area_id: taskDraft.area_id ?? null,
+    completion_kind: null,
+    completed_at: null
+  };
+}
+
+function getDueOffsetDays(plannedDate: string | null | undefined, dueDate: string | null | undefined) {
+  if (!plannedDate || !dueDate) {
+    return 0;
+  }
+
+  const planned = parseEventDate(plannedDate).getTime();
+  const due = parseEventDate(dueDate).getTime();
+
+  return Math.max(0, Math.round((due - planned) / (24 * 60 * 60 * 1000)));
+}
+
+function advanceRecurringDate(baseDate: string, unit: RecurrenceUnit, count: number) {
+  const next = parseEventDate(baseDate);
+
+  if (unit === "day") {
+    next.setDate(next.getDate() + count);
+  } else if (unit === "week") {
+    next.setDate(next.getDate() + count * 7);
+  } else {
+    next.setMonth(next.getMonth() + count);
+  }
+
+  return formatDateInputValue(next);
+}
+
+function buildNextRecurringTask(task: Task, template: RecurringTaskTemplate): Task {
+  const sourceDate = task.planned_date ?? task.due_date ?? template.anchor_date;
+  const nextPlannedDate = advanceRecurringDate(
+    sourceDate,
+    template.interval_unit,
+    template.interval_count
+  );
+  const nextDueDate = addDays(parseEventDate(nextPlannedDate), template.due_offset_days);
+
+  return {
+    id: crypto.randomUUID(),
+    user_id: task.user_id,
+    title: template.title,
+    description: template.description,
+    domain: template.domain,
+    status: "backlog",
+    priority: template.priority,
+    planned_date: nextPlannedDate,
+    due_date: formatDateInputValue(nextDueDate),
+    follow_up_date: null,
+    area_id: template.area_id,
+    recurring_template_id: template.id,
+    completion_kind: null,
+    completed_at: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+}
+
+function formatRecurrenceSummary(template: RecurringTaskTemplate | null) {
+  if (!template) {
+    return "a custom rhythm";
+  }
+
+  const countLabel = template.interval_count === 1 ? "1" : `${template.interval_count}`;
+  const unitLabel =
+    template.interval_unit === "day"
+      ? template.interval_count === 1
+        ? "day"
+        : "days"
+      : template.interval_unit === "week"
+        ? template.interval_count === 1
+          ? "week"
+          : "weeks"
+        : template.interval_count === 1
+          ? "month"
+          : "months";
+
+  return `${countLabel} ${unitLabel}`;
+}
+
+function getStarterAreas(): Area[] {
+  return STARTER_AREAS.map((name, index) => ({
+    id: `starter-area-${index}`,
+    name,
+    position: index,
+    archived: false
+  }));
 }
 
 function parseEventDate(value: string) {

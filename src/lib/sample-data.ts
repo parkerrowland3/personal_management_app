@@ -8,10 +8,16 @@ export const sampleTasks: Task[] = [
     domain: "personal",
     status: "today",
     priority: "medium",
+    planned_date: new Date().toISOString().slice(0, 10),
     due_date: new Date().toISOString().slice(0, 10),
+    follow_up_date: null,
+    area_id: null,
+    recurring_template_id: null,
     google_calendar_event_id: null,
     google_calendar_event_url: null,
-    google_calendar_last_synced_at: null
+    google_calendar_last_synced_at: null,
+    completion_kind: null,
+    completed_at: null
   },
   {
     id: "sample-2",
@@ -20,10 +26,16 @@ export const sampleTasks: Task[] = [
     domain: "work",
     status: "in_progress",
     priority: "high",
+    planned_date: new Date().toISOString().slice(0, 10),
     due_date: null,
+    follow_up_date: null,
+    area_id: null,
+    recurring_template_id: null,
     google_calendar_event_id: null,
     google_calendar_event_url: null,
-    google_calendar_last_synced_at: null
+    google_calendar_last_synced_at: null,
+    completion_kind: null,
+    completed_at: null
   },
   {
     id: "sample-3",
@@ -32,10 +44,16 @@ export const sampleTasks: Task[] = [
     domain: "school",
     status: "backlog",
     priority: "medium",
+    planned_date: null,
     due_date: null,
+    follow_up_date: null,
+    area_id: null,
+    recurring_template_id: null,
     google_calendar_event_id: null,
     google_calendar_event_url: null,
-    google_calendar_last_synced_at: null
+    google_calendar_last_synced_at: null,
+    completion_kind: null,
+    completed_at: null
   },
   {
     id: "sample-4",
@@ -44,9 +62,51 @@ export const sampleTasks: Task[] = [
     domain: "personal",
     status: "done",
     priority: "low",
+    planned_date: null,
     due_date: null,
+    follow_up_date: null,
+    area_id: null,
+    recurring_template_id: null,
     google_calendar_event_id: null,
     google_calendar_event_url: null,
-    google_calendar_last_synced_at: null
+    google_calendar_last_synced_at: null,
+    completion_kind: "completed",
+    completed_at: new Date().toISOString()
+  },
+  {
+    id: "sample-5",
+    title: "Ask landlord about package locker",
+    description: "Waiting on a reply before ordering the replacement key.",
+    domain: "personal",
+    status: "waiting",
+    priority: "medium",
+    planned_date: null,
+    due_date: null,
+    follow_up_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    area_id: null,
+    recurring_template_id: null,
+    google_calendar_event_id: null,
+    google_calendar_event_url: null,
+    google_calendar_last_synced_at: null,
+    completion_kind: null,
+    completed_at: null
+  },
+  {
+    id: "sample-6",
+    title: "Drop off return at UPS",
+    description: "Quick-captured before leaving the house.",
+    domain: "personal",
+    status: "inbox",
+    priority: "medium",
+    planned_date: null,
+    due_date: null,
+    follow_up_date: null,
+    area_id: null,
+    recurring_template_id: null,
+    google_calendar_event_id: null,
+    google_calendar_event_url: null,
+    google_calendar_last_synced_at: null,
+    completion_kind: null,
+    completed_at: null
   }
 ];
